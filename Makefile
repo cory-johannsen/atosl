@@ -4,6 +4,9 @@ SRCS := atosl.c subprograms.c common.c
 HDRS := atosl.h subprograms.h common.h
 
 TARGET := atosl
+TARGET_EXEC := $(TARGET)
+TARGET_STATIC_LIB := lib$(TARGET).a
+TARGET_SHARED_LIB := lib$(TARGET).so
 
 OBJS := ${SRCS:.c=.o}
 DEPS := ${SRCS:.c=.dep}
@@ -12,7 +15,13 @@ DIST := ${TARGET}-${VERSION}
 
 .PHONY: all clean distclean dist install uninstall
 
-all:: ${TARGET}
+all:: $(TARGET_STATIC_LIB) $(TARGET_SHARED_LIB) ${TARGET}
+
+${TARGET_STATIC_LIB}: ${OBJS}
+	    ${AR} -rcs $@ $^ 
+
+${TARGET_SHARED_LIB}: ${OBJS}
+	    ${CC} -o $@ $^ ${LDFLAGS} -shared
 
 ${TARGET}: ${OBJS}
 	    ${CC} -o $@ $^ ${LDFLAGS}
@@ -24,7 +33,7 @@ ${DEPS}: %.dep: %.c Makefile
 	    ${CC} ${CFLAGS} -MM $< > $@
 
 clean:
-	    -rm -f *~ *.o *.dep ${TARGET} ${DIST}.tar.gz
+	    -rm -f *~ *.o *.a *.so *.dep ${TARGET} ${DIST}.tar.gz
 
 dist: clean
 	mkdir -p ${DIST}
