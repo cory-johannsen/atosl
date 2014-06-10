@@ -1,4 +1,9 @@
 atosl
+libatosl.a
+libatosl.so
 *.dep
 *.o
 config.mk.local
+.cproject
+.project
+

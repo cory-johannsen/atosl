@@ -94,16 +94,9 @@ struct function_t {
     Dwarf_Addr addr;
 };
 
-/* Various addresses, parsed from the cmdline or the mach-o sections */
-static struct {
-    Dwarf_Addr load_address;
-    int use_globals;
-    int use_cache;
-    const char *dsym_filename;
-    cpu_type_t cpu_type;
-    cpu_subtype_t cpu_subtype;
-    const char *cache_dir;
-} options = {
+
+
+static symbolication_options_t default_options = {
     .load_address = LONG_MAX,
     .use_globals = 0,
     .use_cache = 1,
@@ -538,7 +531,7 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     return 0;
 }
 
-int print_symtab_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
+int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr)
 {
     struct nlist_t nlist;
     struct symbol_t *current;
@@ -937,7 +930,7 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
-int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
+int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
     struct dwarf_subprogram_t *prev = NULL;
@@ -974,7 +967,7 @@ int print_subprogram_symbol(Dwarf_Addr slide, Dwarf_Addr addr)
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
+int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
 {
     static Dwarf_Arange *arange_buf = NULL;
     Dwarf_Line *linebuf = NULL;
@@ -1158,76 +1151,17 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
     return 0;
 }
 
-int main(int argc, char *argv[]) {
+int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address) {
     int fd;
     int ret;
-    int i;
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
     int derr = 0;
+    int i;
+    int found = 0;
     Dwarf_Obj_Access_Interface *binary_interface = NULL;
     Dwarf_Ptr errarg = NULL;
-    int option_index;
-    int c;
-    int found = 0;
     uint32_t magic;
-    cpu_type_t cpu_type = -1;
-    cpu_subtype_t cpu_subtype = -1;
-    Dwarf_Addr address;
-
-    memset(&context, 0, sizeof(context));
-
-    while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
-            >= 0) {
-        switch (c) {
-            case 'l':
-                errno = 0;
-                address = strtol(optarg, (char **)NULL, 16);
-                if (errno != 0)
-                    fatal("invalid load address: `%s': %s", optarg, strerror(errno));
-                options.load_address = address;
-                break;
-            case 'o':
-                options.dsym_filename = optarg;
-                break;
-            case 'A':
-                for (i = 0; i < NUMOF(arch_str_to_type); i++) {
-                    if (strcmp(arch_str_to_type[i].name, optarg) == 0) {
-                        cpu_type = arch_str_to_type[i].type;
-                        cpu_subtype = arch_str_to_type[i].subtype;
-                        break;
-                    }
-                }
-                if ((cpu_type < 0) && (cpu_subtype < 0))
-                    fatal("unsupported architecture `%s'", optarg);
-                options.cpu_type = cpu_type;
-                options.cpu_subtype = cpu_subtype;
-                break;
-            case 'v':
-                debug = 1;
-                break;
-            case 'g':
-                options.use_globals = 1;
-                break;
-            case 'c':
-                options.use_cache = 0;
-                break;
-            case 'C':
-                options.cache_dir = optarg;
-                break;
-            case 'V':
-                fprintf(stderr, "atosl %s\n", VERSION);
-                exit(EXIT_SUCCESS);
-            case '?':
-                print_help();
-                exit(EXIT_FAILURE);
-            case 'h':
-                print_help();
-                exit(EXIT_SUCCESS);
-            default:
-                fatal("unhandled option");
-        }
-    }
 
     if (!options.dsym_filename)
         fatal("no filename specified with -o");
@@ -1296,9 +1230,6 @@ int main(int argc, char *argv[]) {
     if (magic != MH_MAGIC && magic != MH_MAGIC_64)
       fatal("invalid magic for architecture");
 
-    if (argc <= optind)
-        fatal_usage("no addresses specified");
-
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
 
@@ -1325,23 +1256,16 @@ int main(int argc, char *argv[]) {
                                                    SUBPROGRAMS_CUS,
                              &opts);
 
-        for (i = optind; i < argc; i++) {
-            Dwarf_Addr addr;
-            errno = 0;
-            addr = strtol(argv[i], (char **)NULL, 16);
-            if (errno != 0)
-                fatal("invalid address: `%s': %s", argv[i], strerror(errno));
-            ret = print_dwarf_symbol(dbg,
-                                 options.load_address - context.intended_addr,
-                                 addr);
-            if (ret != DW_DLV_OK) {
-                derr = print_subprogram_symbol(
-                         options.load_address - context.intended_addr, addr);
-            }
+        ret = print_dwarf_symbol(options, dbg,
+                             options.load_address - context.intended_addr,
+                             symbol_address);
+        if (ret != DW_DLV_OK) {
+            derr = print_subprogram_symbol(
+                     options, options.load_address - context.intended_addr, symbol_address);
+        }
 
-            if ((ret != DW_DLV_OK) && derr) {
-                printf("%s\n", argv[i]);
-            }
+        if ((ret != DW_DLV_OK) && derr) {
+            printf("%llux\n", symbol_address);
         }
 
         dwarf_mach_object_access_finish(binary_interface);
@@ -1349,24 +1273,93 @@ int main(int argc, char *argv[]) {
         ret = dwarf_object_finish(dbg, &err);
         DWARF_ASSERT(ret, err);
     } else {
-        for (i = optind; i < argc; i++) {
-            Dwarf_Addr addr;
-            errno = 0;
-            addr = strtol(argv[i], (char **)NULL, 16);
-            if (errno != 0)
-                fatal("invalid address address: `%s': %s", optarg, strerror(errno));
-            ret = print_symtab_symbol(
-                    options.load_address - context.intended_addr,
-                    addr);
+        ret = print_symtab_symbol(options, 
+                options.load_address - context.intended_addr,
+                symbol_address);
 
-            if (ret != DW_DLV_OK)
-                printf("%s\n", argv[i]);
-        }
+        if (ret != DW_DLV_OK)
+            printf("%llux\n", symbol_address);
     }
 
     close(fd);
 
-    return 0;
+    return ret;
 }
 
+int main(int argc, char *argv[]) {
+    int i;
+    int option_index;
+    int c;
+    int found = 0;
+    int result = 0;
+    cpu_type_t cpu_type = -1;
+    cpu_subtype_t cpu_subtype = -1;
+    symbolication_options_t options = default_options;
+    Dwarf_Addr address;
+
+    memset(&context, 0, sizeof(context));
+
+    while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
+            >= 0) {
+        switch (c) {
+            case 'l':
+                errno = 0;
+                address = strtol(optarg, (char **)NULL, 16);
+                if (errno != 0)
+                    fatal("invalid load address: `%s': %s", optarg, strerror(errno));
+                options.load_address = address;
+                break;
+            case 'o':
+                options.dsym_filename = optarg;
+                break;
+            case 'A':
+                for (i = 0; i < NUMOF(arch_str_to_type); i++) {
+                    if (strcmp(arch_str_to_type[i].name, optarg) == 0) {
+                        cpu_type = arch_str_to_type[i].type;
+                        cpu_subtype = arch_str_to_type[i].subtype;
+                        break;
+                    }
+                }
+                if ((cpu_type < 0) && (cpu_subtype < 0))
+                    fatal("unsupported architecture `%s'", optarg);
+                options.cpu_type = cpu_type;
+                options.cpu_subtype = cpu_subtype;
+                break;
+            case 'v':
+                debug = 1;
+                break;
+            case 'g':
+                options.use_globals = 1;
+                break;
+            case 'c':
+                options.use_cache = 0;
+                break;
+            case 'C':
+                options.cache_dir = optarg;
+                break;
+            case 'V':
+                fprintf(stderr, "atosl %s\n", VERSION);
+                exit(EXIT_SUCCESS);
+            case '?':
+                print_help();
+                exit(EXIT_FAILURE);
+            case 'h':
+                print_help();
+                exit(EXIT_SUCCESS);
+            default:
+                fatal("unhandled option");
+        }
+    }
+    if (argc <= optind)
+        fatal_usage("no addresses specified");
+
+    for (i = optind; i < argc; i++) {
+        Dwarf_Addr addr;
+        errno = 0;
+        addr = strtol(argv[i], (char **)NULL, 16);
+        if (errno != 0)
+            fatal("invalid address: `%s': %s", argv[i], strerror(errno));
+        result = symbolicate(options, addr); 
+    }
+}
 /* vim:set ts=4 sw=4 sts=4 expandtab: */

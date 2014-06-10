@@ -161,4 +161,17 @@ struct nlist_t
     uint32_t n_value;
 };
 
+/* Various addresses, parsed from the cmdline or the mach-o sections */
+typedef struct {
+    Dwarf_Addr load_address;
+    int use_globals;
+    int use_cache;
+    const char *dsym_filename;
+    cpu_type_t cpu_type;
+    cpu_subtype_t cpu_subtype;
+    const char *cache_dir;
+} symbolication_options_t;
+
+int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address);
+
 #endif /* ATOSL _*/
