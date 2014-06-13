@@ -6,4 +6,5 @@ libatosl.so
 config.mk.local
 .cproject
 .project
-
+*.gz
+*.swp

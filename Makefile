@@ -44,8 +44,12 @@ dist: clean
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
+	mkdir -p ${DESTDIR}${PREFIX}/lib
+	mkdir -p ${DESTDIR}${PREFIX}/include
 	cp -f atosl ${DESTDIR}${PREFIX}/bin
 	chmod 755 ${DESTDIR}${PREFIX}/bin/atosl
+	cp -f libatosl.* ${DESTDIR}${PREFIX}/lib
+	cp -f atosl.h ${DESTDIR}${PREFIX}/include
 
 uninstall:
 	rm -f ${DESTDIR}${PREFIX}/bin/atosl

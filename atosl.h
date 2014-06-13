@@ -172,6 +172,10 @@ typedef struct {
     const char *cache_dir;
 } symbolication_options_t;
 
-int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address);
+/**
+* Symbolicates the requested symbol address and stores the result in the given buffer.
+* The output of symbolication will be truncated to fit the buffer size if the length exceeds bufferSize.
+**/
+int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char* symbolBuffer, size_t maxBufferSize);
 
 #endif /* ATOSL _*/

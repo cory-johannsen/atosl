@@ -531,7 +531,7 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     return 0;
 }
 
-int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr)
+int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     struct nlist_t nlist;
     struct symbol_t *current;
@@ -618,7 +618,12 @@ int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf
             if (name[0] == '_')
                 name++;
 
-            printf("%s%s (in %s) + %d\n",
+            //printf("%s%s (in %s) + %d\n",
+            //        name,
+            //        demangled ? "()" : "",
+            //        basename((char *)options.dsym_filename),
+            //        (unsigned int)(addr - sym->addr));
+            snprintf(symbolBuffer, maxBufferSize, "%s%s (in %s) + %d\n",
                     name,
                     demangled ? "()" : "",
                     basename((char *)options.dsym_filename),
@@ -930,7 +935,7 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
-int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr)
+int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
     struct dwarf_subprogram_t *prev = NULL;
@@ -955,7 +960,11 @@ int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, D
 
     if (match) {
         demangled = demangle(match->name);
-        printf("%s (in %s) + %d\n",
+        //printf("%s (in %s) + %d\n",
+        //       demangled ?: match->name,
+        //       basename((char *)options.dsym_filename),
+        //       (unsigned int)(addr - match->lowpc));
+        snprintf(symbolBuffer, maxBufferSize, "%s (in %s) + %d\n",
                demangled ?: match->name,
                basename((char *)options.dsym_filename),
                (unsigned int)(addr - match->lowpc));
@@ -967,7 +976,7 @@ int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, D
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr)
+int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     static Dwarf_Arange *arange_buf = NULL;
     Dwarf_Line *linebuf = NULL;
@@ -1066,7 +1075,11 @@ int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_A
             symbol = lookup_symbol_name(addr);
             demangled = demangle(symbol);
 
-            printf("%s (in %s) (%s:%d)\n",
+            //printf("%s (in %s) (%s:%d)\n",
+            //       demangled ? demangled : symbol,
+            //       basename((char *)options.dsym_filename),
+            //       basename(filename), (int)lineno);
+            snprintf(symbolBuffer, maxBufferSize, "%s (in %s) (%s:%d)\n",
                    demangled ? demangled : symbol,
                    basename((char *)options.dsym_filename),
                    basename(filename), (int)lineno);
@@ -1151,7 +1164,7 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
     return 0;
 }
 
-int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address) {
+int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char* symbolBuffer, size_t maxBufferSize) {
     int fd;
     int ret;
     Dwarf_Debug dbg = NULL;
@@ -1258,10 +1271,10 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address) {
 
         ret = print_dwarf_symbol(options, dbg,
                              options.load_address - context.intended_addr,
-                             symbol_address);
+                             symbol_address, symbolBuffer, maxBufferSize);
         if (ret != DW_DLV_OK) {
             derr = print_subprogram_symbol(
-                     options, options.load_address - context.intended_addr, symbol_address);
+                     options, options.load_address - context.intended_addr, symbol_address, symbolBuffer, maxBufferSize);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
@@ -1275,7 +1288,7 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address) {
     } else {
         ret = print_symtab_symbol(options, 
                 options.load_address - context.intended_addr,
-                symbol_address);
+                symbol_address, symbolBuffer, maxBufferSize);
 
         if (ret != DW_DLV_OK)
             printf("%llux\n", symbol_address);
@@ -1359,7 +1372,8 @@ int main(int argc, char *argv[]) {
         addr = strtol(argv[i], (char **)NULL, 16);
         if (errno != 0)
             fatal("invalid address: `%s': %s", argv[i], strerror(errno));
-        result = symbolicate(options, addr); 
+        char symbolBuffer[256];
+        result = symbolicate(options, addr, symbolBuffer, 256); 
     }
 }
 /* vim:set ts=4 sw=4 sts=4 expandtab: */
