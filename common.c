@@ -24,7 +24,7 @@ void common_fatal(const char *file, int lineno, const char *format, ...)
     fprintf(stderr, "atosl: %s:%d: ", file, lineno);
     vfprintf(stderr, format, vargs);
     fprintf(stderr, "\n");
-    exit(EXIT_FAILURE);
+    // exit(EXIT_FAILURE);
 }
 
 void common_fatal_usage(const char *file, int lineno, const char *format, ...)
@@ -37,7 +37,7 @@ void common_fatal_usage(const char *file, int lineno, const char *format, ...)
     fprintf(stderr, USAGE "\n");
     fprintf(stderr, "\n\n");
     fprintf(stderr, "Try `atosl --help` for more options.\n");
-    exit(EXIT_FAILURE);
+    // exit(EXIT_FAILURE);
 }
 
 void common_fatal_file(const char *file, int lineno, int ret)

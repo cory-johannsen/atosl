@@ -195,8 +195,10 @@ int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     int ret;
 
     ret = _read(obj->handle, context.uuid, UUID_LEN);
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "%10s ", "uuid");
@@ -215,14 +217,18 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
     struct dwarf_section_t *s;
 
     s = malloc(sizeof(*s));
-    if (!s)
+    if (!s) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     memset(s, 0, sizeof(*s));
 
     ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "Section\n");
@@ -265,21 +271,25 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
     struct dwarf_section_64_t *s;
 
     s = malloc(sizeof(*s));
-    if (!s)
+    if (!s) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     memset(s, 0, sizeof(*s));
 
     ret = _read(obj->handle, &s->mach_section, sizeof(s->mach_section));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "Section\n");
         fprintf(stderr, "%10s %s\n", "sectname", s->mach_section.sectname);
         fprintf(stderr, "%10s %s\n", "segname", s->mach_section.segname);
-        fprintf(stderr, "%10s 0x%.8llx\n", "addr", s->mach_section.addr);
-        fprintf(stderr, "%10s 0x%.8llx\n", "size", s->mach_section.size);
+        fprintf(stderr, "%10s 0x%.8llx\n", "addr", (long long unsigned int) s->mach_section.addr);
+        fprintf(stderr, "%10s 0x%.8llx\n", "size", (long long unsigned int) s->mach_section.size);
         fprintf(stderr, "%10s %d\n", "offset", s->mach_section.offset);
         /* TODO: what is the second value here? */
         fprintf(stderr, "%10s 2^%d (?)\n", "align", s->mach_section.align);
@@ -319,8 +329,10 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     int i;
 
     ret = _read(obj->handle, &segment, sizeof(segment));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "Segment: %s\n", segment.segname);
@@ -344,8 +356,10 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
 
     for (i = 0; i < segment.nsects; i++) {
         err = parse_section(obj);
-        if (err)
+        if (err) {
             fatal("unable to parse section in `%s`", segment.segname);
+            return EXIT_FAILURE;
+        }
     }
 
     return 0;
@@ -359,15 +373,17 @@ int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize
     int i;
 
     ret = _read(obj->handle, &segment, sizeof(segment));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "Segment: %s\n", segment.segname);
-        fprintf(stderr, "\tvmaddr: 0x%.8llx\n", segment.vmaddr);
-        fprintf(stderr, "\tvmsize: %llu\n", segment.vmsize);
-        fprintf(stderr, "\tfileoff: 0x%.8llx\n", segment.fileoff);
-        fprintf(stderr, "\tfilesize: %llu\n", segment.filesize);
+        fprintf(stderr, "\tvmaddr: 0x%.8llx\n", (long long unsigned int) segment.vmaddr);
+        fprintf(stderr, "\tvmsize: %llu\n", (long long unsigned int) segment.vmsize);
+        fprintf(stderr, "\tfileoff: 0x%.8llx\n", (long long unsigned int) segment.fileoff);
+        fprintf(stderr, "\tfilesize: %llu\n", (long long unsigned int) segment.filesize);
         fprintf(stderr, "\tmaxprot: %d\n", segment.maxprot);
         fprintf(stderr, "\tinitprot: %d\n", segment.initprot);
         fprintf(stderr, "\tnsects: %d\n", segment.nsects);
@@ -384,8 +400,10 @@ int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize
 
     for (i = 0; i < segment.nsects; i++) {
         err = parse_section_64(obj);
-        if (err)
+        if (err) {
             fatal("unable to parse section in `%s`", segment.segname);
+            return EXIT_FAILURE;
+        }
     }
 
     return 0;
@@ -402,8 +420,10 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     struct symbol_t *current;
 
     ret = _read(obj->handle, &symtab, sizeof(symtab));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "Symbol\n");
@@ -414,35 +434,49 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     }
 
     strtable = malloc(symtab.strsize);
-    if (!strtable)
+    if (!strtable) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     pos = lseek(obj->handle, 0, SEEK_CUR);
-    if (pos < 0)
+    if (pos < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     ret = lseek(obj->handle, context.arch.offset+symtab.stroff, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     ret = _read(obj->handle, strtable, symtab.strsize);
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     ret = lseek(obj->handle, context.arch.offset+symtab.symoff, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     context.nsymbols = symtab.nsyms;
     context.symlist = malloc(sizeof(struct symbol_t) * symtab.nsyms);
-    if (!context.symlist)
+    if (!context.symlist) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
     current = context.symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
         ret = _read(obj->handle, &current->sym, sizeof(current->sym));
-        if (ret < 0)
+        if (ret < 0) {
             fatal_file(ret);
+            return EXIT_FAILURE;
+        }
 
         if (current->sym.n_un.n_strx) {
             current->name = strtable+current->sym.n_un.n_strx;
@@ -452,8 +486,10 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     }
 
     ret = lseek(obj->handle, pos, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     return 0;
 }
@@ -472,8 +508,10 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     struct function_t *func;
 
     ret = _read(obj->handle, &linkedit, sizeof(linkedit));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     if (debug) {
         fprintf(stderr, "LC_FUNCTION_STARTS\n");
@@ -482,26 +520,36 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     }
 
     linkedit_data = malloc(linkedit.datasize);
-    if (!linkedit_data)
+    if (!linkedit_data) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     orig_pos = lseek(obj->handle, 0, SEEK_CUR);
-    if (orig_pos < 0)
+    if (orig_pos < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     /* TODO: will the linkedit section always be defined before the
      * function_starts command? */
-    if (!context.linkedit_addr)
+    if (!context.linkedit_addr) {
         fatal("fixme: linkedit address specified after function section.");
+        return EXIT_FAILURE;
+    }
 
     pos = context.arch.offset + linkedit.dataoff;
     ret = lseek(obj->handle, pos, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     ret = _read(obj->handle, linkedit_data, linkedit.datasize);
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     encoded_data = (Dwarf_Small *)linkedit_data;
     context.nfuncs = 0;
@@ -511,8 +559,10 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     } while (offset != 0);
 
     context.funclist = func = malloc(sizeof(*func) * context.nfuncs);
-    if (!func)
+    if (!func) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     encoded_data = (Dwarf_Small *)linkedit_data;
     addr = context.intended_addr;
@@ -525,13 +575,15 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     } while (offset != 0);
 
     ret = lseek(obj->handle, orig_pos, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     return 0;
 }
 
-int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     struct nlist_t nlist;
     struct symbol_t *current;
@@ -609,8 +661,10 @@ int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf
                 }
             }
 
-            if (!found_sym)
+            if (!found_sym) {
                 fatal("unable to find symbol at address %x", sym->addr);
+                return EXIT_FAILURE;
+            }
 
             demangled = demangle(sym->name);
             name = demangled ? demangled : sym->name;
@@ -621,12 +675,12 @@ int print_symtab_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf
             //printf("%s%s (in %s) + %d\n",
             //        name,
             //        demangled ? "()" : "",
-            //        basename((char *)options.dsym_filename),
+            //        basename((char *)options-<dsym_filename),
             //        (unsigned int)(addr - sym->addr));
             snprintf(symbolBuffer, maxBufferSize, "%s%s (in %s) + %d\n",
                     name,
                     demangled ? "()" : "",
-                    basename((char *)options.dsym_filename),
+                    basename((char *)options->dsym_filename),
                     (unsigned int)(addr - sym->addr));
             found = 1;
 
@@ -672,8 +726,10 @@ int parse_command(
         case LC_PREPAGE:
             cmdsize = load_command.cmdsize - sizeof(load_command);
             ret = lseek(obj->handle, cmdsize, SEEK_CUR);
-            if (ret < 0)
+            if (ret < 0) {
                 fatal("error seeking: %s", strerror(errno));
+                return EXIT_FAILURE;
+            }
             break;
     }
 
@@ -701,14 +757,18 @@ static int dwarf_mach_object_access_internals_init(
     obj->sections_64 = NULL;
 
     ret = _read(obj->handle, &header, sizeof(header));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     /* Need to skip a couple bits if we're a 64-bit */
     if (header.cputype == CPU_TYPE_ARM64 && header.cpusubtype == CPU_SUBTYPE_ARM64_ALL) {
       ret = lseek(obj->handle, 4, SEEK_CUR);
-      if (ret < 0)
+      if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+      }
     }
 
     if (debug) {
@@ -737,12 +797,15 @@ static int dwarf_mach_object_access_internals_init(
         default:
             fatal("unsupported file type: 0x%x", header.filetype);
             assert(0);
+            return EXIT_FAILURE;
     }
 
     for (i = 0; i < header.ncmds; i++) {
         ret = _read(obj->handle, &load_command, sizeof(load_command));
-        if (ret < 0)
+        if (ret < 0) {
             fatal_file(ret);
+            return EXIT_FAILURE;
+        }
 
         if (debug) {
             fprintf(stderr, "Load Command %d\n", i);
@@ -751,8 +814,10 @@ static int dwarf_mach_object_access_internals_init(
         }
 
         ret = parse_command(obj, load_command);
-        if (ret < 0)
+        if (ret < 0) {
             fatal("unable to parse command %x", load_command.cmd);
+            return EXIT_FAILURE;
+        }
     }
 
     return DW_DLV_OK;
@@ -829,16 +894,22 @@ static int dwarf_mach_object_access_load_section(
     }
 
     addr = malloc(sec->mach_section.size);
-    if (!addr)
+    if (!addr) {
         fatal("unable to allocate memory");
+        return EXIT_FAILURE;
+    }
 
     ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
-    if (ret < 0)
+    if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
 
     ret = _read(obj->handle, addr, sec->mach_section.size);
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(ret);
+        return EXIT_FAILURE;
+    }
 
     *section_data = addr;
 
@@ -880,7 +951,7 @@ static const struct Dwarf_Obj_Access_Methods_s
 };
 
 
-void dwarf_mach_object_access_init(
+int dwarf_mach_object_access_init(
         dwarf_mach_handle handle,
         Dwarf_Obj_Access_Interface **ret_obj,
         int *err)
@@ -890,22 +961,29 @@ void dwarf_mach_object_access_init(
     Dwarf_Obj_Access_Interface *intfc = NULL;
 
     internals = malloc(sizeof(*internals));
-    if (!internals)
+    if (!internals) {
         fatal("unable to allocate memory");
+        return res;
+    }
 
     memset(internals, 0, sizeof(*internals));
     res = dwarf_mach_object_access_internals_init(handle, internals, err);
-    if (res != DW_DLV_OK)
+    if (res != DW_DLV_OK) {
         fatal("error initializing dwarf internals");
+        return res;
+    }
 
     intfc = malloc(sizeof(Dwarf_Obj_Access_Interface));
-    if (!intfc)
+    if (!intfc) {
         fatal("unable to allocate memory");
+        return res;
+    }
 
     intfc->object = internals;
     intfc->methods = &dwarf_mach_object_access_methods;
 
     *ret_obj = intfc;
+    return res;
 }
 
 void dwarf_mach_object_access_finish(Dwarf_Obj_Access_Interface *obj)
@@ -935,7 +1013,7 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
-int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
     struct dwarf_subprogram_t *prev = NULL;
@@ -962,11 +1040,11 @@ int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, D
         demangled = demangle(match->name);
         //printf("%s (in %s) + %d\n",
         //       demangled ?: match->name,
-        //       basename((char *)options.dsym_filename),
+        //       basename((char *)options->dsym_filename),
         //       (unsigned int)(addr - match->lowpc));
         snprintf(symbolBuffer, maxBufferSize, "%s (in %s) + %d\n",
                demangled ?: match->name,
-               basename((char *)options.dsym_filename),
+               basename((char *)options->dsym_filename),
                (unsigned int)(addr - match->lowpc));
         if (demangled)
             free(demangled);
@@ -976,7 +1054,7 @@ int print_subprogram_symbol(symbolication_options_t options, Dwarf_Addr slide, D
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
 {
     static Dwarf_Arange *arange_buf = NULL;
     Dwarf_Line *linebuf = NULL;
@@ -1077,11 +1155,11 @@ int print_dwarf_symbol(symbolication_options_t options, Dwarf_Debug dbg, Dwarf_A
 
             //printf("%s (in %s) (%s:%d)\n",
             //       demangled ? demangled : symbol,
-            //       basename((char *)options.dsym_filename),
+            //       basename((char *)options->dsym_filename),
             //       basename(filename), (int)lineno);
             snprintf(symbolBuffer, maxBufferSize, "%s (in %s) (%s:%d)\n",
                    demangled ? demangled : symbol,
-                   basename((char *)options.dsym_filename),
+                   basename((char *)options->dsym_filename),
                    basename(filename), (int)lineno);
 
             found = 1;
@@ -1111,60 +1189,78 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
     const char * TEMPLATE = "/tmp/atosl.thin.XXXXXX";
     int template_len = strlen(TEMPLATE)+1;
     char *thin_output_file = malloc(template_len);
-    if (thin_output_file == NULL)
+    if (thin_output_file == NULL) {
         fatal("couldn't malloc space for tempfilename");
+        return EXIT_FAILURE;
+    }
     strncpy(thin_output_file, TEMPLATE, template_len);
     int thin_fd = mkstemp(thin_output_file);
     int ret;
 
     //dispose of the file after we close it.
-    if (unlink(thin_output_file) != 0)
+    if (unlink(thin_output_file) != 0) {
         fatal("can't unlink file");
+        return EXIT_FAILURE;
+    }
 
     free(thin_output_file);
 
-    if (thin_fd < 0)
+    if (thin_fd < 0) {
         fatal("can't create tempfile");
+        return EXIT_FAILURE;
+    }
 
     if (debug)
         printf("temp file: %s\n", thin_output_file);
 
     struct stat stat_buf;
-    if (fstat(thin_fd, &stat_buf) == -1)
+    if (fstat(thin_fd, &stat_buf) == -1) {
         fatal("can't stat tmpfile!");
+        return EXIT_FAILURE;
+    }
 
     off_t bytes_written = 0;
 
     void *input_buffer = mmap(0, arch.size + arch.offset, PROT_READ, MAP_FILE|MAP_PRIVATE, *fd_ref, 0);
 
-    if (input_buffer == MAP_FAILED)
+    if (input_buffer == MAP_FAILED) {
         fatal("can't mmap file (errno %d)", errno);
+        return EXIT_FAILURE;
+    }
 
     bytes_written = write(thin_fd, &input_buffer[arch.offset], arch.size + 2 * sizeof(magic));
 
     if (debug)
-        printf("bytes_written = %lld, size = %u", bytes_written, context.arch.size);
+        printf("bytes_written = %lld, size = %u", (long long int) bytes_written, context.arch.size);
 
-    if (bytes_written < arch.size)
+    if (bytes_written < arch.size) {
         fatal("short write");
+        return EXIT_FAILURE;
+    }
 
 
-    if (munmap(input_buffer,  arch.size + arch.offset) != 0)
+    if (munmap(input_buffer,  arch.size + arch.offset) != 0) {
         fatal("can't unmap input file");
+        return EXIT_FAILURE;
+    }
 
-    if (close(*fd_ref) == -1)
+    if (close(*fd_ref) == -1) {
         fatal("can't close original output file");
+        return EXIT_FAILURE;
+    }
 
     ret = lseek(thin_fd, sizeof(magic), SEEK_SET); //move read pointer to right past the magic header.
-    if (ret < 0)
+    if (ret < 0) {
         fatal("unable to seek back to start of thinned file.");
+        return EXIT_FAILURE;
+    }
 
     *fd_ref = thin_fd;
 
     return 0;
 }
 
-int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char* symbolBuffer, size_t maxBufferSize) {
+int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbolBuffer, size_t maxBufferSize) {
     int fd;
     int ret;
     Dwarf_Debug dbg = NULL;
@@ -1176,18 +1272,44 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char
     Dwarf_Ptr errarg = NULL;
     uint32_t magic;
 
-    if (!options.dsym_filename)
-        fatal("no filename specified with -o");
+    setbuf(stdout, NULL);
+    printf("[atosl.c] atosl_symbolicate invoked with parameters:\n");
+    printf("[atosl.c]     options: 0x%llx\n", (long long unsigned int) options);
+    printf("[atosl.c]         load_address: 0x%llx\n", options->load_address);
+    printf("[atosl.c]         use_globals: %d\n", options->use_globals);
+    printf("[atosl.c]         use_cache: %d\n", options->use_cache);
+    printf("[atosl.c]         dsym_filename: %s\n", options->dsym_filename);
+    printf("[atosl.c]         cpu_type: 0x%x\n", options->cpu_type);
+    printf("[atosl.c]         cpu_subtype: 0x%x\n", options->cpu_subtype);
+    printf("[atosl.c]         cache_dir: %s\n", options->cache_dir ? options->cache_dir : "NULL");
+    printf("[atosl.c]     symbol_address: 0x%llx\n", symbol_address);
+    printf("[atosl.c]     symbolBuffer: 0x%llx\n", (long long unsigned int) symbolBuffer);
+    printf("[atosl.c]     maxBufferSize: %u\n", (unsigned int) maxBufferSize);
 
-    fd = open(options.dsym_filename, O_RDONLY);
-    if (fd < 0)
-        fatal("unable to open `%s': %s",
-              options.dsym_filename,
+    if (!options->dsym_filename) {
+        // fatal("no filename specified with -o");
+        fatal("No dsym filename specified.");
+        return EXIT_FAILURE;
+    }
+
+    printf("[atosl.c] opening dsym file...\n");
+    fd = open(options->dsym_filename, O_RDONLY);
+    if (fd < 0) {
+        // fatal("unable to open `%s': %s",
+        //       options->dsym_filename,
+        //       strerror(errno));
+        fatal("Unable to open dsym file `%s': %s",
+              options->dsym_filename,
               strerror(errno));
+        return EXIT_FAILURE;
+    }
 
+    printf("[atosl.c] reading magic from dsym file...\n");
     ret = _read(fd, &magic, sizeof(magic));
-    if (ret < 0)
+    if (ret < 0) {
         fatal_file(fd);
+        return EXIT_FAILURE;
+    }
 
     if (magic == FAT_CIGAM) {
         /* Find the architecture we want.. */
@@ -1200,29 +1322,37 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char
         nfat_arch = ntohl(nfat_arch);
         for (i = 0; i < nfat_arch; i++) {
             ret = _read(fd, &context.arch, sizeof(context.arch));
-            if (ret < 0)
-                fatal("unable to read arch struct");
+            if (ret < 0) {
+                // fatal("unable to read arch struct");
+                fatal("Unable to read arch struct");
+                return EXIT_FAILURE;
+            }
 
             context.arch.cputype = ntohl(context.arch.cputype);
             context.arch.cpusubtype = ntohl(context.arch.cpusubtype);
             context.arch.offset = ntohl(context.arch.offset);
             context.arch.size = ntohl(context.arch.size);
 
-            if ((context.arch.cputype == options.cpu_type) &&
-                (context.arch.cpusubtype == options.cpu_subtype)) {
+            if ((context.arch.cputype == options->cpu_type) &&
+                (context.arch.cpusubtype == options->cpu_subtype)) {
                 /* good! */
                 ret = lseek(fd, context.arch.offset, SEEK_SET);
-                if (ret < 0)
-                    fatal("unable to seek to arch (offset=%ld): %s",
+                if (ret < 0) {
+                    fatal("Unable to seek to arch (offset=%ld): %s",
                           context.arch.offset, strerror(errno));
+                    return EXIT_FAILURE;
+                }
 
                 ret = _read(fd, &magic, sizeof(magic));
-                if (ret < 0)
+                if (ret < 0) {
                     fatal_file(fd);
+                    return EXIT_FAILURE;
+                }
 
                 found = 1;
                 if (lipo_to_tempfile(&fd, magic, context.arch) != 0) {
                     fatal("unable to extract file\n");
+                    return EXIT_FAILURE;
                 }
                 break;
             } else {
@@ -1237,17 +1367,21 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char
         found = 1;
     }
 
-    if (!found)
-        fatal("no valid architectures found");
+    if (!found) {
+        fatal("No valid architectures found");
+        return EXIT_FAILURE;
+    }
 
-    if (magic != MH_MAGIC && magic != MH_MAGIC_64)
-      fatal("invalid magic for architecture");
+    if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
+        fatal("invalid magic for architecture");
+        return EXIT_FAILURE;
+    }
 
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
 
-    if (options.load_address == LONG_MAX)
-        options.load_address = context.intended_addr;
+    if (options->load_address == LONG_MAX)
+        options->load_address = context.intended_addr;
 
     ret = dwarf_object_init(binary_interface,
                             dwarf_error_handler,
@@ -1258,27 +1392,28 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char
      * symbol table */
     if (ret == DW_DLV_OK) {
         struct subprograms_options_t opts = {
-            .persistent = options.use_cache,
-            .cache_dir = options.cache_dir,
+            .persistent = options->use_cache,
+            .cache_dir = options->cache_dir,
         };
 
         context.subprograms =
             subprograms_load(dbg,
                              context.uuid,
-                             options.use_globals ? SUBPROGRAMS_GLOBALS :
+                             options->use_globals ? SUBPROGRAMS_GLOBALS :
                                                    SUBPROGRAMS_CUS,
                              &opts);
 
         ret = print_dwarf_symbol(options, dbg,
-                             options.load_address - context.intended_addr,
+                             options->load_address - context.intended_addr,
                              symbol_address, symbolBuffer, maxBufferSize);
         if (ret != DW_DLV_OK) {
             derr = print_subprogram_symbol(
-                     options, options.load_address - context.intended_addr, symbol_address, symbolBuffer, maxBufferSize);
+                     options, options->load_address - context.intended_addr, symbol_address, symbolBuffer, maxBufferSize);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
-            printf("%llux\n", symbol_address);
+            //printf("%llux\n", symbol_address);
+            snprintf(symbolBuffer, maxBufferSize, "0x%llx", symbol_address);
         }
 
         dwarf_mach_object_access_finish(binary_interface);
@@ -1287,11 +1422,12 @@ int symbolicate(symbolication_options_t options, Dwarf_Addr symbol_address, char
         DWARF_ASSERT(ret, err);
     } else {
         ret = print_symtab_symbol(options, 
-                options.load_address - context.intended_addr,
+                options->load_address - context.intended_addr,
                 symbol_address, symbolBuffer, maxBufferSize);
 
         if (ret != DW_DLV_OK)
-            printf("%llux\n", symbol_address);
+            //printf("%llux\n", symbol_address);
+            snprintf(symbolBuffer, maxBufferSize, "0x%llx", symbol_address);
     }
 
     close(fd);
@@ -1303,7 +1439,6 @@ int main(int argc, char *argv[]) {
     int i;
     int option_index;
     int c;
-    int found = 0;
     int result = 0;
     cpu_type_t cpu_type = -1;
     cpu_subtype_t cpu_subtype = -1;
@@ -1318,8 +1453,10 @@ int main(int argc, char *argv[]) {
             case 'l':
                 errno = 0;
                 address = strtol(optarg, (char **)NULL, 16);
-                if (errno != 0)
+                if (errno != 0) {
                     fatal("invalid load address: `%s': %s", optarg, strerror(errno));
+                    return EXIT_FAILURE;
+                }
                 options.load_address = address;
                 break;
             case 'o':
@@ -1333,8 +1470,10 @@ int main(int argc, char *argv[]) {
                         break;
                     }
                 }
-                if ((cpu_type < 0) && (cpu_subtype < 0))
+                if ((cpu_type < 0) && (cpu_subtype < 0)) {
                     fatal("unsupported architecture `%s'", optarg);
+                    return EXIT_FAILURE;
+                }
                 options.cpu_type = cpu_type;
                 options.cpu_subtype = cpu_subtype;
                 break;
@@ -1361,19 +1500,25 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_SUCCESS);
             default:
                 fatal("unhandled option");
+                return EXIT_FAILURE;
         }
     }
-    if (argc <= optind)
+    if (argc <= optind) {
         fatal_usage("no addresses specified");
+        return EXIT_FAILURE;
+    }
 
     for (i = optind; i < argc; i++) {
         Dwarf_Addr addr;
         errno = 0;
         addr = strtol(argv[i], (char **)NULL, 16);
-        if (errno != 0)
+        if (errno != 0) {
             fatal("invalid address: `%s': %s", argv[i], strerror(errno));
+            return EXIT_FAILURE;
+        }
         char symbolBuffer[256];
-        result = symbolicate(options, addr, symbolBuffer, 256); 
+        result = atosl_symbolicate(&options, addr, symbolBuffer, 256); 
     }
+    return result;
 }
 /* vim:set ts=4 sw=4 sts=4 expandtab: */
