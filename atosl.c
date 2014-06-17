@@ -1272,19 +1272,21 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     Dwarf_Ptr errarg = NULL;
     uint32_t magic;
 
-    setbuf(stdout, NULL);
-    printf("[atosl.c] atosl_symbolicate invoked with parameters:\n");
-    printf("[atosl.c]     options: 0x%llx\n", (long long unsigned int) options);
-    printf("[atosl.c]         load_address: 0x%llx\n", options->load_address);
-    printf("[atosl.c]         use_globals: %d\n", options->use_globals);
-    printf("[atosl.c]         use_cache: %d\n", options->use_cache);
-    printf("[atosl.c]         dsym_filename: %s\n", options->dsym_filename);
-    printf("[atosl.c]         cpu_type: 0x%x\n", options->cpu_type);
-    printf("[atosl.c]         cpu_subtype: 0x%x\n", options->cpu_subtype);
-    printf("[atosl.c]         cache_dir: %s\n", options->cache_dir ? options->cache_dir : "NULL");
-    printf("[atosl.c]     symbol_address: 0x%llx\n", symbol_address);
-    printf("[atosl.c]     symbolBuffer: 0x%llx\n", (long long unsigned int) symbolBuffer);
-    printf("[atosl.c]     maxBufferSize: %u\n", (unsigned int) maxBufferSize);
+    if (debug) {
+        setbuf(stdout, NULL);
+        printf("[atosl.c] atosl_symbolicate invoked with parameters:\n");
+        printf("[atosl.c]     options: 0x%llx\n", (long long unsigned int) options);
+        printf("[atosl.c]         load_address: 0x%llx\n", options->load_address);
+        printf("[atosl.c]         use_globals: %d\n", options->use_globals);
+        printf("[atosl.c]         use_cache: %d\n", options->use_cache);
+        printf("[atosl.c]         dsym_filename: %s\n", options->dsym_filename);
+        printf("[atosl.c]         cpu_type: 0x%x\n", options->cpu_type);
+        printf("[atosl.c]         cpu_subtype: 0x%x\n", options->cpu_subtype);
+        printf("[atosl.c]         cache_dir: %s\n", options->cache_dir ? options->cache_dir : "NULL");
+        printf("[atosl.c]     symbol_address: 0x%llx\n", symbol_address);
+        printf("[atosl.c]     symbolBuffer: 0x%llx\n", (long long unsigned int) symbolBuffer);
+        printf("[atosl.c]     maxBufferSize: %u\n", (unsigned int) maxBufferSize);
+    }
 
     if (!options->dsym_filename) {
         // fatal("no filename specified with -o");
@@ -1292,7 +1294,9 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
-    printf("[atosl.c] opening dsym file...\n");
+    if (debug) {
+        printf("[atosl.c] opening dsym file...\n");
+    }
     fd = open(options->dsym_filename, O_RDONLY);
     if (fd < 0) {
         // fatal("unable to open `%s': %s",
@@ -1304,7 +1308,9 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
-    printf("[atosl.c] reading magic from dsym file...\n");
+    if (debug) {
+        printf("[atosl.c] reading magic from dsym file...\n");
+    }
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
@@ -1518,6 +1524,9 @@ int main(int argc, char *argv[]) {
         }
         char symbolBuffer[256];
         result = atosl_symbolicate(&options, addr, symbolBuffer, 256); 
+        if (result == 0) {
+            printf("%s", symbolBuffer);
+        }
     }
     return result;
 }
