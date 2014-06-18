@@ -583,7 +583,7 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     return 0;
 }
 
-int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
 {
     struct nlist_t nlist;
     struct symbol_t *current;
@@ -677,7 +677,7 @@ int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwar
             //        demangled ? "()" : "",
             //        basename((char *)options-<dsym_filename),
             //        (unsigned int)(addr - sym->addr));
-            snprintf(symbolBuffer, maxBufferSize, "%s%s (in %s) + %d\n",
+            snprintf(symbol_buffer, max_buffer_size, "%s%s (in %s) + %d\n",
                     name,
                     demangled ? "()" : "",
                     basename((char *)options->dsym_filename),
@@ -1013,7 +1013,7 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
-int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
     struct dwarf_subprogram_t *prev = NULL;
@@ -1042,7 +1042,7 @@ int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, 
         //       demangled ?: match->name,
         //       basename((char *)options->dsym_filename),
         //       (unsigned int)(addr - match->lowpc));
-        snprintf(symbolBuffer, maxBufferSize, "%s (in %s) + %d\n",
+        snprintf(symbol_buffer, max_buffer_size, "%s (in %s) + %d\n",
                demangled ?: match->name,
                basename((char *)options->dsym_filename),
                (unsigned int)(addr - match->lowpc));
@@ -1054,7 +1054,7 @@ int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, 
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbolBuffer, size_t maxBufferSize)
+int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
 {
     static Dwarf_Arange *arange_buf = NULL;
     Dwarf_Line *linebuf = NULL;
@@ -1157,7 +1157,7 @@ int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_
             //       demangled ? demangled : symbol,
             //       basename((char *)options->dsym_filename),
             //       basename(filename), (int)lineno);
-            snprintf(symbolBuffer, maxBufferSize, "%s (in %s) (%s:%d)\n",
+            snprintf(symbol_buffer, max_buffer_size, "%s (in %s) (%s:%d)\n",
                    demangled ? demangled : symbol,
                    basename((char *)options->dsym_filename),
                    basename(filename), (int)lineno);
@@ -1260,7 +1260,8 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
     return 0;
 }
 
-int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbolBuffer, size_t maxBufferSize) {
+int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode) {
+    debug = debug_mode;
     int fd;
     int ret;
     Dwarf_Debug dbg = NULL;
@@ -1284,8 +1285,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         printf("[atosl.c]         cpu_subtype: 0x%x\n", options->cpu_subtype);
         printf("[atosl.c]         cache_dir: %s\n", options->cache_dir ? options->cache_dir : "NULL");
         printf("[atosl.c]     symbol_address: 0x%llx\n", symbol_address);
-        printf("[atosl.c]     symbolBuffer: 0x%llx\n", (long long unsigned int) symbolBuffer);
-        printf("[atosl.c]     maxBufferSize: %u\n", (unsigned int) maxBufferSize);
+        printf("[atosl.c]     symbol_buffer: 0x%llx\n", (long long unsigned int) symbol_buffer);
+        printf("[atosl.c]     max_buffer_size: %u\n", (unsigned int) max_buffer_size);
     }
 
     if (!options->dsym_filename) {
@@ -1411,15 +1412,15 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
         ret = print_dwarf_symbol(options, dbg,
                              options->load_address - context.intended_addr,
-                             symbol_address, symbolBuffer, maxBufferSize);
+                             symbol_address, symbol_buffer, max_buffer_size);
         if (ret != DW_DLV_OK) {
             derr = print_subprogram_symbol(
-                     options, options->load_address - context.intended_addr, symbol_address, symbolBuffer, maxBufferSize);
+                     options, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
             //printf("%llux\n", symbol_address);
-            snprintf(symbolBuffer, maxBufferSize, "0x%llx", symbol_address);
+            snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
         }
 
         dwarf_mach_object_access_finish(binary_interface);
@@ -1429,11 +1430,11 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     } else {
         ret = print_symtab_symbol(options, 
                 options->load_address - context.intended_addr,
-                symbol_address, symbolBuffer, maxBufferSize);
+                symbol_address, symbol_buffer, max_buffer_size);
 
         if (ret != DW_DLV_OK)
             //printf("%llux\n", symbol_address);
-            snprintf(symbolBuffer, maxBufferSize, "0x%llx", symbol_address);
+            snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
     }
 
     close(fd);
@@ -1522,10 +1523,10 @@ int main(int argc, char *argv[]) {
             fatal("invalid address: `%s': %s", argv[i], strerror(errno));
             return EXIT_FAILURE;
         }
-        char symbolBuffer[256];
-        result = atosl_symbolicate(&options, addr, symbolBuffer, 256); 
+        char symbol_buffer[256];
+        result = atosl_symbolicate(&options, addr, symbol_buffer, 256, debug); 
         if (result == 0) {
-            printf("%s", symbolBuffer);
+            printf("%s", symbol_buffer);
         }
     }
     return result;
