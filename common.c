@@ -21,7 +21,7 @@ void common_fatal(const char *file, int lineno, const char *format, ...)
 {
     va_list vargs;
     va_start(vargs, format);
-    fprintf(stderr, "atosl: %s:%d: ", file, lineno);
+    fprintf(stderr, "[FATAL] atosl: %s:%d: ", file, lineno);
     vfprintf(stderr, format, vargs);
     fprintf(stderr, "\n");
     // exit(EXIT_FAILURE);
@@ -52,7 +52,16 @@ void common_warning(const char *file, int lineno, const char *format, ...)
 {
     va_list vargs;
     va_start(vargs, format);
-    fprintf(stderr, "atosl: warning: %s:%d: ", file, lineno);
+    fprintf(stderr, "[WARNING} atosl: %s:%d: ", file, lineno);
+    vfprintf(stderr, format, vargs);
+    fprintf(stderr, "\n");
+}
+
+void common_debug(const char *file, int lineno, const char *format, ...)
+{
+    va_list vargs;
+    va_start(vargs, format);
+    fprintf(stderr, "[DEBUG] atosl: %s:%d: ", file, lineno);
     vfprintf(stderr, format, vargs);
     fprintf(stderr, "\n");
 }

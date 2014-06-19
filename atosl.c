@@ -1261,7 +1261,6 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
 }
 
 int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode) {
-    debug = debug_mode;
     int fd;
     int ret;
     Dwarf_Debug dbg = NULL;
@@ -1273,20 +1272,20 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     Dwarf_Ptr errarg = NULL;
     uint32_t magic;
 
-    if (debug) {
+    if (debug_mode) {
         setbuf(stdout, NULL);
-        printf("[atosl.c] atosl_symbolicate invoked with parameters:\n");
-        printf("[atosl.c]     options: 0x%llx\n", (long long unsigned int) options);
-        printf("[atosl.c]         load_address: 0x%llx\n", options->load_address);
-        printf("[atosl.c]         use_globals: %d\n", options->use_globals);
-        printf("[atosl.c]         use_cache: %d\n", options->use_cache);
-        printf("[atosl.c]         dsym_filename: %s\n", options->dsym_filename);
-        printf("[atosl.c]         cpu_type: 0x%x\n", options->cpu_type);
-        printf("[atosl.c]         cpu_subtype: 0x%x\n", options->cpu_subtype);
-        printf("[atosl.c]         cache_dir: %s\n", options->cache_dir ? options->cache_dir : "NULL");
-        printf("[atosl.c]     symbol_address: 0x%llx\n", symbol_address);
-        printf("[atosl.c]     symbol_buffer: 0x%llx\n", (long long unsigned int) symbol_buffer);
-        printf("[atosl.c]     max_buffer_size: %u\n", (unsigned int) max_buffer_size);
+        debug("atosl_symbolicate invoked with parameters:");
+        debug("    options: 0x%llx", (long long unsigned int) options);
+        debug("        load_address: 0x%llx", options->load_address);
+        debug("        use_globals: %d", options->use_globals);
+        debug("        use_cache: %d", options->use_cache);
+        debug("        dsym_filename: %s", options->dsym_filename);
+        debug("        cpu_type: 0x%x", options->cpu_type);
+        debug("        cpu_subtype: 0x%x", options->cpu_subtype);
+        debug("        cache_dir: %s", options->cache_dir ? options->cache_dir : "NULL");
+        debug("    symbol_address: 0x%llx", symbol_address);
+        debug("    symbol_buffer: 0x%llx", (long long unsigned int) symbol_buffer);
+        debug("    max_buffer_size: %u", (unsigned int) max_buffer_size);
     }
 
     if (!options->dsym_filename) {
@@ -1295,8 +1294,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
-    if (debug) {
-        printf("[atosl.c] opening dsym file...\n");
+    if (debug_mode) {
+        debug("opening dsym file...");
     }
     fd = open(options->dsym_filename, O_RDONLY);
     if (fd < 0) {
@@ -1309,8 +1308,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
-    if (debug) {
-        printf("[atosl.c] reading magic from dsym file...\n");
+    if (debug_mode) {
+        debug("reading magic from dsym file...");
     }
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
@@ -1358,14 +1357,14 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
                 found = 1;
                 if (lipo_to_tempfile(&fd, magic, context.arch) != 0) {
-                    fatal("unable to extract file\n");
+                    fatal("unable to extract LIPO to temp file");
                     return EXIT_FAILURE;
                 }
                 break;
             } else {
                 /* skip */
-                if (debug) {
-                    fprintf(stderr, "Skipping arch: %x %x\n",
+                if (debug_mode) {
+                    debug("Skipping arch: %x %x",
                             context.arch.cputype, context.arch.cpusubtype);
                 }
             }
@@ -1384,12 +1383,19 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
+    if (debug_mode) {
+        debug("Successfully located magic %d for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
+        debug("Initializing MACH dwarf object binary interface...");
+    }
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
     assert(binary_interface);
 
     if (options->load_address == LONG_MAX)
         options->load_address = context.intended_addr;
 
+    if (debug_mode) {
+        debug("Initializing dwarf object...");
+    }
     ret = dwarf_object_init(binary_interface,
                             dwarf_error_handler,
                             errarg, &dbg, &err);
@@ -1398,11 +1404,17 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     /* If there is dwarf info we'll use that to parse, otherwise we'll use the
      * symbol table */
     if (ret == DW_DLV_OK) {
+        if (debug_mode) {
+            debug("dSym data contains DWARF symbols.  Using the DWARF data to resolve symbols.");
+        }
         struct subprograms_options_t opts = {
             .persistent = options->use_cache,
             .cache_dir = options->cache_dir,
         };
 
+        if (debug_mode) {
+            debug("Attempting to parse and load DWARF subprogram data...");
+        }
         context.subprograms =
             subprograms_load(dbg,
                              context.uuid,
@@ -1410,15 +1422,24 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                                                    SUBPROGRAMS_CUS,
                              &opts);
 
+        if (debug_mode) {
+            debug("Building DWARF symbol table...");
+        }
         ret = print_dwarf_symbol(options, dbg,
                              options->load_address - context.intended_addr,
                              symbol_address, symbol_buffer, max_buffer_size);
         if (ret != DW_DLV_OK) {
+            if (debug_mode) {
+                debug("Successfully build the DWARF symbol table, now resolving the subprogram symbols...");
+            }
             derr = print_subprogram_symbol(
                      options, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
+            if (debug_mode) {
+                debug("Successfully build the DWARF symbol table, now resolving the subprogram symbols...");
+            }
             //printf("%llux\n", symbol_address);
             snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
         }
@@ -1428,11 +1449,17 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         ret = dwarf_object_finish(dbg, &err);
         DWARF_ASSERT(ret, err);
     } else {
+        if (debug_mode) {
+            debug("dSym data does not contain DWARF symbols.  Using symbol table lookup to resolve symbols.");
+        }
         ret = print_symtab_symbol(options, 
                 options->load_address - context.intended_addr,
                 symbol_address, symbol_buffer, max_buffer_size);
 
         if (ret != DW_DLV_OK)
+            if (debug_mode) {
+                debug("Unable to locate symbol with address 0x%llx, returning the symbol address.", symbol_address);
+            }
             //printf("%llux\n", symbol_address);
             snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
     }

@@ -41,6 +41,9 @@ void common_fatal_file(const char *file, int lineno, int ret);
 #define warning(args...) common_warning(__FILE__, __LINE__, args)
 void common_warning(const char *file, int lineno, const char *format, ...);
 
+#define debug(args...) common_debug(__FILE__, __LINE__, args)
+void common_debug(const char *file, int lineno, const char* format, ...);
+
 #define DWARF_ASSERT(ret, err) \
     do { \
         if (ret == DW_DLV_ERROR) { \
