@@ -1075,16 +1075,25 @@ int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_
     addr -= slide;
 
     if (!arange_buf) {
+        debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%llx, &arange_buf: 0x%llx, &count: 0x%llx, &err: 0x%llx", dbg, &arange_buf, &count, &err);
+        ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
+        DWARF_ASSERT(ret, err);
+    }
+    else {
+        debug("arange_buf is already defined with address 0x%llx, NULLing it out now.", arange_buf);
+        arange_buf = NULL;
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
 
+    debug("invoking dwarf_get_arange with params: &arange_buf: 0x%llx, &count: 0x%llx, addr: 0x%llx, &arange: 0x%llx, &err: 0x%llx", &arange_buf, &count, addr, &arange, &err);
     ret = dwarf_get_arange(arange_buf, count, addr, &arange, &err);
     DWARF_ASSERT(ret, err);
 
     if (ret == DW_DLV_NO_ENTRY)
         return ret;
 
+    debug("invoking dwarf_get_arange_info_b with params: arange: 0x%llx, &segment: 0x%llx, &segment_entry_size: 0x%llx, &start: 0x%llx, &length: 0x%llx, &cu_die_offset, &err: 0x%llx", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
     ret = dwarf_get_arange_info_b(
             arange,
             &segment,
@@ -1095,12 +1104,14 @@ int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_
             &err);
     DWARF_ASSERT(ret, err);
 
+    debug("invoking dwarf_offdie with params: dbg: 0x%llx, cu_die_offset: 0x%llx, &cu_die, &err: 0x%llx", dbg, cu_die_offset, &cu_die, &err);
     ret = dwarf_offdie(dbg, cu_die_offset, &cu_die, &err);
     DWARF_ASSERT(ret, err);
 
     /* ret = dwarf_print_lines(cu_die, &err, &errcnt); */
     /* DWARF_ASSERT(ret, err); */
 
+    debug("invoking dwarf_srclines with params: cu_die: 0x%llx, &linebuf: 0x%llx, &linecount, &err: 0x%llx", cu_die, &linebuf, &linecount, &err);
     ret = dwarf_srclines(cu_die, &linebuf, &linecount, &err);
     DWARF_ASSERT(ret, err);
 
@@ -1384,7 +1395,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     }
 
     if (debug_mode) {
-        debug("Successfully located magic %d for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
+        debug("Successfully located magic 0x%llx for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
         debug("Initializing MACH dwarf object binary interface...");
     }
     dwarf_mach_object_access_init(fd, &binary_interface, &derr);
@@ -1423,7 +1434,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                              &opts);
 
         if (debug_mode) {
-            debug("Building DWARF symbol table...");
+            debug("Building DWARF symbol table. Using params options: 0x%llx, dbg: 0x%llx, slide: 0x%llx, addr: 0x%llx, symbol_buffer: 0x%llx, max_buffer_size: %d", options, dbg, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
         ret = print_dwarf_symbol(options, dbg,
                              options->load_address - context.intended_addr,
