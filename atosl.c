@@ -1433,8 +1433,11 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
 
             if (context.arch.cputype == CPU_TYPE_ARM64) {
-            	warning("Detected 64-bit ARM architecture.  64-bit support is currently disabled.");
-            	continue;
+//            	warning("Detected 64-bit ARM architecture.  64-bit support is currently disabled.");
+//            	continue;
+            	if(debug_mode) {
+            		debug("Detected 64-bit ARM architecture.");
+            	}
             }
 
             ret = lseek(fd, context.arch.offset, SEEK_SET);
@@ -1445,7 +1448,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
             else {
                 if (debug_mode) {
-                    debug("Successfully seeked to offset 0x%llx", context.arch.offset);
+                    debug("Seek to offset 0x%llx completed successfully.", context.arch.offset);
                 }
             }
 
@@ -1471,7 +1474,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
 
             if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
-                fatal("invalid magic for architecture");
+                fatal("Invalid magic for architecture.  Found magic 0x%llx, expected MH_MAGIC (0x%llx) or MH_MAGIC_64 (0x%llx)", magic, MH_MAGIC, MH_MAGIC_64);
                 return EXIT_FAILURE;
             }
             else {
@@ -1491,14 +1494,17 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             if (debug_mode) {
 				debug("MACH dwarf object binary interface initialized, loading DWARF data...");
 			}
-            ret = dwarf_object_init(binary_interface,
-                                            dwarf_error_handler,
-                                            errarg, &dbg, &err);
-			DWARF_ASSERT(ret, err);
 
-			if (debug_mode) {
-				debug("DWARF data loaded.  Extracting UUID.");
-			}
+            //dwarf_mach_object_access_internals_t *dwarf_internals = (dwarf_mach_object_access_internals_t *) binary_interface->object;
+
+            //ret = dwarf_object_init(binary_interface,
+            //                                dwarf_error_handler,
+            //                                errarg, &dbg, &err);
+			//DWARF_ASSERT(ret, err);
+
+			//if (debug_mode) {
+			//	debug("DWARF data loaded.  Extracting UUID.");
+			//}
 
 			char uuid[(2 * UUID_LEN) + 1];
 			memset(uuid, 0, (2 * UUID_LEN) + 1);
@@ -1530,11 +1536,11 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 
         dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
         assert(binary_interface);
-
-        ret = dwarf_object_init(binary_interface,
-                                dwarf_error_handler,
-                                errarg, &dbg, &err);
-        DWARF_ASSERT(ret, err);
+//
+//        ret = dwarf_object_init(binary_interface,
+//                                dwarf_error_handler,
+//                                errarg, &dbg, &err);
+//        DWARF_ASSERT(ret, err);
 
         char uuid[(2 * UUID_LEN) + 1];
         memset(uuid, 0, (2 * UUID_LEN) + 1);
