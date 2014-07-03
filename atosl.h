@@ -173,6 +173,11 @@ typedef struct {
 } symbolication_options_t;
 
 /**
+ * Loads the UUIDs from the specified dSym file and returns them to the caller
+ **/
+int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_buffer_size, int debug_mode);
+
+/**
 * Symbolicates the requested symbol address and stores the result in the given buffer.
 * The output of symbolication will be truncated to fit the buffer size if the length exceeds bufferSize.
 **/

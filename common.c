@@ -65,3 +65,12 @@ void common_debug(const char *file, int lineno, const char *format, ...)
     vfprintf(stderr, format, vargs);
     fprintf(stderr, "\n");
 }
+
+void common_verbose(const char *file, int lineno, const char *format, ...)
+{
+    va_list vargs;
+    va_start(vargs, format);
+    //fprintf(stderr, "[VERBOSE] atosl: %s:%d: ", file, lineno);
+    vfprintf(stderr, format, vargs);
+    fprintf(stderr, "\n");
+}

@@ -55,9 +55,11 @@ _dwarf_decode_u_leb128(Dwarf_Small * leb128,
     } while (0)
 
 static int debug = 0;
+static int verbose = 0;
 
-static const char *shortopts = "vl:o:A:gcC:Vh";
+static const char *shortopts = "dvl:o:A:gcC:uVh";
 static struct option longopts[] = {
+    {"debug", no_argument, NULL, 'd'},
     {"verbose", no_argument, NULL, 'v'},
     {"load-address", required_argument, NULL, 'l'},
     {"dsym", required_argument, NULL, 'o'},
@@ -65,6 +67,7 @@ static struct option longopts[] = {
     {"globals", no_argument, NULL, 'g'},
     {"no-cache", no_argument, NULL, 'c'},
     {"cache-dir", required_argument, NULL, 'C'},
+    {"uuid", no_argument, NULL, 'u'},
     {"version", no_argument, NULL, 'V'},
     {"help", no_argument, NULL, 'h'},
     {NULL, 0, NULL, 0}
@@ -94,6 +97,23 @@ struct function_t {
     Dwarf_Addr addr;
 };
 
+typedef struct {
+    /* Symbols from symtab */
+    struct symbol_t *symlist;
+    uint32_t nsymbols;
+    /* Functions from LC_FUNCTION_STARTS */
+    struct function_t *funclist;
+    uint32_t nfuncs;
+    struct dwarf_subprogram_t *subprograms;
+
+    Dwarf_Addr intended_addr;
+    Dwarf_Addr linkedit_addr;
+
+    struct fat_arch_t arch;
+
+    uint8_t uuid[UUID_LEN];
+} context_t;
+
 
 
 static symbolication_options_t default_options = {
@@ -118,23 +138,6 @@ struct dwarf_section_64_t {
     struct dwarf_section_64_t *next;
 };
 
-static struct {
-    /* Symbols from symtab */
-    struct symbol_t *symlist;
-    uint32_t nsymbols;
-    /* Functions from LC_FUNCTION_STARTS */
-    struct function_t *funclist;
-    uint32_t nfuncs;
-    struct dwarf_subprogram_t *subprograms;
-
-    Dwarf_Addr intended_addr;
-    Dwarf_Addr linkedit_addr;
-
-    struct fat_arch_t arch;
-
-    uint8_t uuid[UUID_LEN];
-} context;
-
 typedef struct {
     dwarf_mach_handle handle;
     Dwarf_Small length_size;
@@ -154,7 +157,9 @@ void print_help(void)
     fprintf(stderr,
             "  -o, --dsym=FILE\t\tfile to find symbols in\n");
     fprintf(stderr,
-            "  -v, --verbose\t\t\tenable verbose (debug) messages\n");
+            "  -d, --debug\t\t\tenable debug messages\n");
+    fprintf(stderr,
+            "  -v, --verbose\t\t\tenable verbose messages\n");
     fprintf(stderr,
             "  -l, --load_address=ADDRESS\tspecify application load address\n");
     fprintf(stderr,
@@ -163,6 +168,8 @@ void print_help(void)
             "  -g, --globals\t\t\tlookup symbols using global section\n");
     fprintf(stderr,
             "  -c, --no-cache\t\tdon't cache debugging information\n");
+    fprintf(stderr,
+			"  -u, --uuid\t\tExtract UUIDs\n");
     fprintf(stderr,
             "  -V, --version\t\t\tget current version\n");
     fprintf(stderr,
@@ -179,7 +186,7 @@ char *demangle(const char *sym)
 {
     char *demangled = NULL;
 
-    if (debug)
+    if (verbose)
         fprintf(stderr, "Unmangled name: %s\n", sym);
     if (strncmp(sym, "_Z", 2) == 0)
         demangled = cplus_demangle(sym, 0);
@@ -189,21 +196,21 @@ char *demangle(const char *sym)
     return demangled;
 }
 
-int parse_uuid(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+int parse_uuid(dwarf_mach_object_access_internals_t *obj, context_t* context, uint32_t cmdsize)
 {
     int i;
     int ret;
 
-    ret = _read(obj->handle, context.uuid, UUID_LEN);
+    ret = _read(obj->handle, context->uuid, UUID_LEN);
     if (ret < 0) {
         fatal_file(ret);
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "%10s ", "uuid");
         for (i = 0; i < UUID_LEN; i++) {
-            fprintf(stderr, "%.02x", context.uuid[i]);
+            fprintf(stderr, "%.02x", context->uuid[i]);
         }
         fprintf(stderr, "\n");
     }
@@ -230,7 +237,7 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Section\n");
         fprintf(stderr, "%10s %s\n", "sectname", s->mach_section.sectname);
         fprintf(stderr, "%10s %s\n", "segname", s->mach_section.segname);
@@ -284,7 +291,7 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Section\n");
         fprintf(stderr, "%10s %s\n", "sectname", s->mach_section.sectname);
         fprintf(stderr, "%10s %s\n", "segname", s->mach_section.segname);
@@ -321,7 +328,7 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
 }
 
 
-int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+int parse_segment(dwarf_mach_object_access_internals_t *obj, context_t* context, uint32_t cmdsize)
 {
     int err;
     int ret;
@@ -334,7 +341,7 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Segment: %s\n", segment.segname);
         fprintf(stderr, "\tvmaddr: 0x%.08x\n", segment.vmaddr);
         fprintf(stderr, "\tvmsize: %d\n", segment.vmsize);
@@ -347,11 +354,11 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     }
 
     if (strcmp(segment.segname, "__TEXT") == 0) {
-        context.intended_addr = segment.vmaddr;
+        context->intended_addr = segment.vmaddr;
     }
 
     if (strcmp(segment.segname, "__LINKEDIT") == 0) {
-        context.linkedit_addr = segment.fileoff;
+        context->linkedit_addr = segment.fileoff;
     }
 
     for (i = 0; i < segment.nsects; i++) {
@@ -365,7 +372,7 @@ int parse_segment(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     return 0;
 }
 
-int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+int parse_segment_64(dwarf_mach_object_access_internals_t *obj, context_t* context, uint32_t cmdsize)
 {
     int err;
     int ret;
@@ -378,7 +385,7 @@ int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Segment: %s\n", segment.segname);
         fprintf(stderr, "\tvmaddr: 0x%.8llx\n", (long long unsigned int) segment.vmaddr);
         fprintf(stderr, "\tvmsize: %llu\n", (long long unsigned int) segment.vmsize);
@@ -391,11 +398,11 @@ int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize
     }
 
     if (strcmp(segment.segname, "__TEXT") == 0) {
-        context.intended_addr = segment.vmaddr;
+        context->intended_addr = segment.vmaddr;
     }
 
     if (strcmp(segment.segname, "__LINKEDIT") == 0) {
-        context.linkedit_addr = segment.fileoff;
+        context->linkedit_addr = segment.fileoff;
     }
 
     for (i = 0; i < segment.nsects; i++) {
@@ -409,7 +416,7 @@ int parse_segment_64(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize
     return 0;
 }
 
-int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
+int parse_symtab(dwarf_mach_object_access_internals_t *obj, context_t* context, uint32_t cmdsize)
 {
     int ret;
     off_t pos;
@@ -425,7 +432,7 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Symbol\n");
         fprintf(stderr, "%10s %.08x\n", "symoff", symtab.symoff);
         fprintf(stderr, "%10s %d\n", "nsyms", symtab.nsyms);
@@ -445,7 +452,7 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
         return EXIT_FAILURE;
     }
 
-    ret = lseek(obj->handle, context.arch.offset+symtab.stroff, SEEK_SET);
+    ret = lseek(obj->handle, context->arch.offset+symtab.stroff, SEEK_SET);
     if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
         return EXIT_FAILURE;
@@ -457,19 +464,19 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
         return EXIT_FAILURE;
     }
 
-    ret = lseek(obj->handle, context.arch.offset+symtab.symoff, SEEK_SET);
+    ret = lseek(obj->handle, context->arch.offset+symtab.symoff, SEEK_SET);
     if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
         return EXIT_FAILURE;
     }
 
-    context.nsymbols = symtab.nsyms;
-    context.symlist = malloc(sizeof(struct symbol_t) * symtab.nsyms);
-    if (!context.symlist) {
+    context->nsymbols = symtab.nsyms;
+    context->symlist = malloc(sizeof(struct symbol_t) * symtab.nsyms);
+    if (!context->symlist) {
         fatal("unable to allocate memory");
         return EXIT_FAILURE;
     }
-    current = context.symlist;
+    current = context->symlist;
 
     for (i = 0; i < symtab.nsyms; i++) {
         ret = _read(obj->handle, &current->sym, sizeof(current->sym));
@@ -494,7 +501,7 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, uint32_t cmdsize)
     return 0;
 }
 
-int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
+int parse_function_starts(dwarf_mach_object_access_internals_t *obj, context_t* context,
                           uint32_t cmdsize)
 {
     int ret;
@@ -513,7 +520,7 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
         return EXIT_FAILURE;
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "LC_FUNCTION_STARTS\n");
         fprintf(stderr, "%10s %.08x\n", "dataoff", linkedit.dataoff);
         fprintf(stderr, "%10s %d\n", "datasize", linkedit.datasize);
@@ -533,12 +540,12 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
 
     /* TODO: will the linkedit section always be defined before the
      * function_starts command? */
-    if (!context.linkedit_addr) {
+    if (!context->linkedit_addr) {
         fatal("fixme: linkedit address specified after function section.");
         return EXIT_FAILURE;
     }
 
-    pos = context.arch.offset + linkedit.dataoff;
+    pos = context->arch.offset + linkedit.dataoff;
     ret = lseek(obj->handle, pos, SEEK_SET);
     if (ret < 0) {
         fatal("error seeking: %s", strerror(errno));
@@ -552,20 +559,20 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     }
 
     encoded_data = (Dwarf_Small *)linkedit_data;
-    context.nfuncs = 0;
+    context->nfuncs = 0;
     do {
         DECODE_LEB128_UWORD(encoded_data, offset);
-        context.nfuncs++;
+        context->nfuncs++;
     } while (offset != 0);
 
-    context.funclist = func = malloc(sizeof(*func) * context.nfuncs);
+    context->funclist = func = malloc(sizeof(*func) * context->nfuncs);
     if (!func) {
         fatal("unable to allocate memory");
         return EXIT_FAILURE;
     }
 
     encoded_data = (Dwarf_Small *)linkedit_data;
-    addr = context.intended_addr;
+    addr = context->intended_addr;
     do {
         DECODE_LEB128_UWORD(encoded_data, offset);
         addr += offset;
@@ -583,7 +590,7 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj,
     return 0;
 }
 
-int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
+int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, context_t* context, char* symbol_buffer, size_t max_buffer_size)
 {
     struct nlist_t nlist;
     struct symbol_t *current;
@@ -595,15 +602,15 @@ int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwar
     int j;
 
     addr = addr - slide;
-    current = context.symlist;
+    current = context->symlist;
 
-    for (i = 0; i < context.nsymbols; i++) {
+    for (i = 0; i < context->nsymbols; i++) {
         memcpy(&nlist, &current->sym, sizeof(current->sym));
 
         current->thumb = (nlist.n_desc & N_ARM_THUMB_DEF) ? 1 : 0;
         current->addr = nlist.n_value;
 
-        if (debug) {
+        if (verbose) {
             fprintf(stderr, "\t\tname: %s\n", current->name);
             fprintf(stderr, "\t\tn_un.n_un.n_strx: %d\n", nlist.n_un.n_strx);
             fprintf(stderr, "\t\traw n_type: 0x%x\n", nlist.n_type);
@@ -636,9 +643,9 @@ int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwar
         current++;
     }
 
-    func = context.funclist;
+    func = context->funclist;
 
-    for (i = 0; i < context.nfuncs; i++) {
+    for (i = 0; i < context->nfuncs; i++) {
         if (addr < func->addr) {
             if (i < 1) {
                 /* Someone is asking about a symbol that comes before the first
@@ -651,10 +658,10 @@ int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwar
             struct symbol_t *sym = NULL;
             int found_sym = 0;
             const char *name;
-            assert(i < context.nsymbols);
+            assert(i < context->nsymbols);
 
-            for (j = 0; j < context.nsymbols; j++) {
-                sym = context.symlist + j;
+            for (j = 0; j < context->nsymbols; j++) {
+                sym = context->symlist + j;
                 if (sym->addr == (prev->addr & -2)) {
                     found_sym = 1;
                     break;
@@ -697,6 +704,7 @@ int print_symtab_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwar
 
 int parse_command(
     dwarf_mach_object_access_internals_t *obj,
+    context_t* context,
     struct load_command_t load_command)
 {
     int ret = 0;
@@ -704,22 +712,22 @@ int parse_command(
 
     switch (load_command.cmd) {
         case LC_UUID:
-            ret = parse_uuid(obj, load_command.cmdsize);
+            ret = parse_uuid(obj, context, load_command.cmdsize);
             break;
         case LC_SEGMENT:
-            ret = parse_segment(obj, load_command.cmdsize);
+            ret = parse_segment(obj, context, load_command.cmdsize);
             break;
         case LC_SEGMENT_64:
-            ret = parse_segment_64(obj, load_command.cmdsize);
+            ret = parse_segment_64(obj, context, load_command.cmdsize);
             break;
         case LC_SYMTAB:
-            ret = parse_symtab(obj, load_command.cmdsize);
+            ret = parse_symtab(obj, context, load_command.cmdsize);
             break;
         case LC_FUNCTION_STARTS:
-            ret = parse_function_starts(obj, load_command.cmdsize);
+            ret = parse_function_starts(obj, context, load_command.cmdsize);
             break;
         default:
-            if (debug)
+            if (verbose)
                 fprintf(stderr, "Warning: unhandled command: 0x%x\n",
                                 load_command.cmd);
             /* Fallthrough */
@@ -738,6 +746,7 @@ int parse_command(
 
 static int dwarf_mach_object_access_internals_init(
         dwarf_mach_handle handle,
+        context_t* context,
         void *obj_in,
         int *error)
 {
@@ -771,7 +780,7 @@ static int dwarf_mach_object_access_internals_init(
       }
     }
 
-    if (debug) {
+    if (verbose) {
         fprintf(stderr, "Mach Header:\n");
         fprintf(stderr, "\tCPU Type: %d\n", header.cputype);
         fprintf(stderr, "\tCPU Subtype: %d\n", header.cpusubtype);
@@ -783,15 +792,15 @@ static int dwarf_mach_object_access_internals_init(
 
     switch (header.filetype) {
         case MH_DSYM:
-            if (debug)
+            if (verbose)
                 fprintf(stderr, "File type: debug file\n");
             break;
         case MH_DYLIB:
-            if (debug)
+            if (verbose)
                 fprintf(stderr, "File type: dynamic library\n");
             break;
         case MH_EXECUTE:
-            if (debug)
+            if (verbose)
                 fprintf(stderr, "File type: executable file\n");
             break;
         default:
@@ -807,13 +816,13 @@ static int dwarf_mach_object_access_internals_init(
             return EXIT_FAILURE;
         }
 
-        if (debug) {
+        if (verbose) {
             fprintf(stderr, "Load Command %d\n", i);
             fprintf(stderr, "%10s %x\n", "cmd", load_command.cmd);
             fprintf(stderr, "%10s %d\n", "cmdsize", load_command.cmdsize);
         }
 
-        ret = parse_command(obj, load_command);
+        ret = parse_command(obj, context, load_command);
         if (ret < 0) {
             fatal("unable to parse command %x", load_command.cmd);
             return EXIT_FAILURE;
@@ -953,6 +962,7 @@ static const struct Dwarf_Obj_Access_Methods_s
 
 int dwarf_mach_object_access_init(
         dwarf_mach_handle handle,
+        context_t* context,
         Dwarf_Obj_Access_Interface **ret_obj,
         int *err)
 {
@@ -967,7 +977,7 @@ int dwarf_mach_object_access_init(
     }
 
     memset(internals, 0, sizeof(*internals));
-    res = dwarf_mach_object_access_internals_init(handle, internals, err);
+    res = dwarf_mach_object_access_internals_init(handle, context, internals, err);
     if (res != DW_DLV_OK) {
         fatal("error initializing dwarf internals");
         return res;
@@ -996,7 +1006,7 @@ void dwarf_mach_object_access_finish(Dwarf_Obj_Access_Interface *obj)
     free(obj);
 }
 
-const char *lookup_symbol_name(Dwarf_Addr addr)
+const char *lookup_symbol_name(Dwarf_Addr addr, context_t context)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
 
@@ -1013,7 +1023,7 @@ const char *lookup_symbol_name(Dwarf_Addr addr)
     return "(unknown)";
 }
 
-int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
+int print_subprogram_symbol(symbolication_options_t *options, context_t context, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
 {
     struct dwarf_subprogram_t *subprogram = context.subprograms;
     struct dwarf_subprogram_t *prev = NULL;
@@ -1054,7 +1064,7 @@ int print_subprogram_symbol(symbolication_options_t *options, Dwarf_Addr slide, 
     return match ? 0 : -1;
 }
 
-int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
+int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwarf_Debug dbg, Dwarf_Addr slide, Dwarf_Addr addr, char* symbol_buffer, size_t max_buffer_size)
 {
     static Dwarf_Arange *arange_buf = NULL;
     Dwarf_Line *linebuf = NULL;
@@ -1161,7 +1171,7 @@ int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_
             ret = dwarf_diename(cu_die, &diename, &err);
             DWARF_ASSERT(ret, err);
 
-            symbol = lookup_symbol_name(addr);
+            symbol = lookup_symbol_name(addr, context);
             demangled = demangle(symbol);
 
             //printf("%s (in %s) (%s:%d)\n",
@@ -1191,7 +1201,7 @@ int print_dwarf_symbol(symbolication_options_t *options, Dwarf_Debug dbg, Dwarf_
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
 }
 
-int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
+int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t* context, int debug_mode)
 {
     // do the work of lipo... given the arch, copy the data from the source file
     // and update the fd to point to the new file just past the magic.
@@ -1201,63 +1211,82 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
     int template_len = strlen(TEMPLATE)+1;
     char *thin_output_file = malloc(template_len);
     if (thin_output_file == NULL) {
-        fatal("couldn't malloc space for tempfilename");
+        fatal("Unable to malloc space for tempfilename");
         return EXIT_FAILURE;
     }
     strncpy(thin_output_file, TEMPLATE, template_len);
+
+    if (debug_mode) {
+    	debug("lipo_to_tempfile invoked with parameters source_fd: %d, dest_fd_ref 0x%llx, magic: 0x%llx, context: 0x%llx", source_fd, dest_fd_ref, magic, context);
+
+    	debug("Creating temporary file with template name %s", thin_output_file);
+    }
+
     int thin_fd = mkstemp(thin_output_file);
     int ret;
 
+    if (debug_mode) {
+    	debug("Obtained file descriptor %d for temporary file %s", thin_fd, thin_output_file);
+    }
+
     //dispose of the file after we close it.
     if (unlink(thin_output_file) != 0) {
-        fatal("can't unlink file");
+        fatal("Failed to unlink file %s", thin_output_file);
         return EXIT_FAILURE;
     }
 
     free(thin_output_file);
 
     if (thin_fd < 0) {
-        fatal("can't create tempfile");
+        fatal("Failed to create tempfile");
         return EXIT_FAILURE;
     }
 
-    if (debug)
-        printf("temp file: %s\n", thin_output_file);
-
     struct stat stat_buf;
     if (fstat(thin_fd, &stat_buf) == -1) {
-        fatal("can't stat tmpfile!");
+        fatal("Failed to stat tmpfile!");
         return EXIT_FAILURE;
     }
 
     off_t bytes_written = 0;
 
-    void *input_buffer = mmap(0, arch.size + arch.offset, PROT_READ, MAP_FILE|MAP_PRIVATE, *fd_ref, 0);
+    size_t map_size = context->arch.size + context->arch.offset;
+    if (debug_mode) {
+		debug("Mapped memory size is 0x%llx", map_size);
+	}
+
+    //void *input_buffer = mmap(0, arch.size + arch.offset, PROT_READ, MAP_FILE|MAP_PRIVATE, *fd_ref, 0);
+    void *input_buffer = mmap(0, map_size, PROT_READ, MAP_FILE|MAP_PRIVATE, source_fd, 0);
 
     if (input_buffer == MAP_FAILED) {
         fatal("can't mmap file (errno %d)", errno);
         return EXIT_FAILURE;
     }
 
-    bytes_written = write(thin_fd, &input_buffer[arch.offset], arch.size + 2 * sizeof(magic));
+    bytes_written = write(thin_fd, &input_buffer[context->arch.offset], context->arch.size + 2 * sizeof(magic));
 
     if (debug)
-        printf("bytes_written = %lld, size = %u", (long long int) bytes_written, context.arch.size);
+        debug("bytes_written = %lld, size = %u", (long long int) bytes_written, context->arch.size);
 
-    if (bytes_written < arch.size) {
-        fatal("short write");
+    if (bytes_written < context->arch.size) {
+    	if (bytes_written < 0) {
+    		fatal("failed to write to temporary file.  (errno = %d)", errno);
+    	}
+    	else {
+    		fatal("short write");
+    	}
         return EXIT_FAILURE;
     }
 
 
-    if (munmap(input_buffer,  arch.size + arch.offset) != 0) {
-        fatal("can't unmap input file");
+    if (munmap(input_buffer,  context->arch.size + context->arch.offset) != 0) {
+        fatal("can't unmap input file. (errno = %d)", errno);
         return EXIT_FAILURE;
     }
-
-    if (close(*fd_ref) == -1) {
-        fatal("can't close original output file");
-        return EXIT_FAILURE;
+    else {
+    	if (debug) {
+    		debug("Successfully unmapped input file.");
+    	}
     }
 
     ret = lseek(thin_fd, sizeof(magic), SEEK_SET); //move read pointer to right past the magic header.
@@ -1265,15 +1294,265 @@ int lipo_to_tempfile(int *fd_ref, uint32_t magic, struct fat_arch_t arch)
         fatal("unable to seek back to start of thinned file.");
         return EXIT_FAILURE;
     }
+    else {
+    	if (debug) {
+    		debug("Successful seek back to start of thinned file.");
+    	}
+    }
 
-    *fd_ref = thin_fd;
+    *dest_fd_ref = thin_fd;
 
     return 0;
 }
 
+static int convert_numeric_guid(context_t context, uint8_t* guid, size_t guid_element_count, char* guid_buffer, size_t max_buffer_size) {
+	int uuid_index;
+	char uuid[(2 * guid_element_count) + 1];
+	memset(uuid, 0, (2 * guid_element_count) + 1);
+	for (uuid_index = 0; uuid_index < guid_element_count; uuid_index ++) {
+		sprintf(uuid + (2 * uuid_index * sizeof(char)), "%.2x", context.uuid[uuid_index]);
+	}
+	//debug("Converted numeric guid values to %s", uuid);
+	return snprintf(guid_buffer, max_buffer_size, "%s", uuid);
+}
+
+int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_buffer_size, int debug_mode) {
+    int fd;
+    int ret;
+    int i;
+    Dwarf_Obj_Access_Interface *binary_interface = NULL;
+    Dwarf_Ptr errarg = NULL;
+    Dwarf_Debug dbg = NULL;
+    Dwarf_Error err;
+    uint32_t magic;
+    int derr = 0;
+    int guid_buffer_index = 0;
+
+    if (debug_mode) {
+        setbuf(stdout, NULL);
+        debug("atosl_load_guids invoked with parameters:");
+        debug("    dsym_filename: %s", dsym_filename);
+        debug("    guid_buffer: %llx", guid_buffer);
+        debug("    max_buffer_size: %d", max_buffer_size);
+    }
+
+    if (debug_mode) {
+        debug("opening dsym file...");
+    }
+    fd = open(dsym_filename, O_RDONLY);
+    if (fd < 0) {
+        // fatal("unable to open `%s': %s",
+        //       options->dsym_filename,
+        //       strerror(errno));
+        fatal("Unable to open dsym file `%s': %s",
+              dsym_filename,
+              strerror(errno));
+        return EXIT_FAILURE;
+    }
+
+    if (debug_mode) {
+        debug("reading magic from dsym file...");
+    }
+    ret = _read(fd, &magic, sizeof(magic));
+    if (ret < 0) {
+        fatal_file(fd);
+        return EXIT_FAILURE;
+    }
+    else {
+        if (debug_mode) {
+            debug("Read magic value 0x%llx from dsym file", magic);
+        }
+    }
+
+    if (magic == FAT_CIGAM) {
+    	if (debug_mode) {
+			debug("Magic value 0x%llx matches FAT_CIGAM value 0x%llx.  Processing as a multi-architecture dSym.", magic, FAT_CIGAM);
+		}
+        uint32_t nfat_arch;
+
+        // Read the count of fat binary architectures in the DWARF data
+        ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
+        if (ret < 0)
+            fatal_file(fd);
+
+        nfat_arch = ntohl(nfat_arch);
+        if (debug_mode) {
+            debug("dsym file contains %d FAT architectures", nfat_arch);
+        }
+
+        context_t* contexts = NULL;
+        contexts = malloc(nfat_arch * sizeof(context_t));
+        memset(contexts, 0, nfat_arch * sizeof(context_t));
+
+        // First, extract the architecture contexts
+        for (i = 0; i < nfat_arch; i++) {
+        	ret = _read(fd, &(contexts[i].arch), sizeof(contexts[i].arch));
+			if (ret < 0) {
+				fatal("Unable to read arch struct");
+				return EXIT_FAILURE;
+			}
+			contexts[i].arch.cputype = ntohl(contexts[i].arch.cputype);
+			contexts[i].arch.cpusubtype = ntohl(contexts[i].arch.cpusubtype);
+			contexts[i].arch.offset = ntohl(contexts[i].arch.offset);
+			contexts[i].arch.size = ntohl(contexts[i].arch.size);
+
+			if (debug_mode) {
+				debug("Located architecture #%d: cpu type 0x%x, subtype 0x%x, offset 0x%llx, and size 0x%llx", i,
+						contexts[i].arch.cputype, contexts[i].arch.cpusubtype, contexts[i].arch.offset, contexts[i].arch.size);
+			}
+        }
+
+        // Iterate the fat binary architectures and extract the GUID from each one
+        for (i = 0; i < nfat_arch; i++) {
+            context_t context = contexts[i];
+            int arch_fd;
+            if (debug_mode) {
+                debug("Processing architecture for cpu type 0x%x, subtype 0x%x, offset 0x%llx, and size 0x%llx",
+                        context.arch.cputype, context.arch.cpusubtype, context.arch.offset, context.arch.size);
+            }
+
+            if (context.arch.cputype != CPU_TYPE_I386 &&
+            		context.arch.cputype != CPU_TYPE_ARM &&
+            		context.arch.cputype != CPU_TYPE_ARM64) {
+            	warning("CPU type %d is not recognized.  Skipping this architecture.", context.arch.cputype);
+            	continue;
+            }
+
+            if (context.arch.cpusubtype != CPU_SUBTYPE_X86_ALL &&
+            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V6 &&
+            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V7 &&
+            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V7S &&
+            		context.arch.cpusubtype != CPU_SUBTYPE_ARM64_ALL) {
+				warning("CPU subtype %d is not recognized.  Skipping this architecture.", context.arch.cpusubtype);
+				continue;
+			}
+
+            if (context.arch.size == 0) {
+            	warning("Architecture size %d is invalid.  Skipping this architecture.", context.arch.size);
+            	continue;
+            }
+
+            if (context.arch.cputype == CPU_TYPE_ARM64) {
+            	warning("Detected 64-bit ARM architecture.  64-bit support is currently disabled.");
+            	continue;
+            }
+
+            ret = lseek(fd, context.arch.offset, SEEK_SET);
+            if (ret < 0) {
+                fatal("Unable to seek to arch (offset=%ld): %s",
+                      context.arch.offset, strerror(errno));
+                return EXIT_FAILURE;
+            }
+            else {
+                if (debug_mode) {
+                    debug("Successfully seeked to offset 0x%llx", context.arch.offset);
+                }
+            }
+
+            ret = _read(fd, &magic, sizeof(magic));
+            if (ret < 0) {
+                fatal_file(fd);
+                return EXIT_FAILURE;
+            }
+            else {
+                if (debug_mode) {
+                    debug("Read architecture magic 0x%llx", magic);
+                }
+            }
+
+            if (lipo_to_tempfile(fd, &arch_fd, magic, &context, debug_mode) != 0) {
+                fatal("unable to extract LIPO to temp file");
+                return EXIT_FAILURE;
+            }
+            else {
+                if (debug_mode) {
+                    debug("Successfully executed lipo_to_tempfile");
+                }
+            }
+
+            if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
+                fatal("invalid magic for architecture");
+                return EXIT_FAILURE;
+            }
+            else {
+                if (debug_mode) {
+                    debug("Magic 0x%llx matches MH_MAGIC (0x%llx) or MH_MAGIC_64 (0x%llx)", magic, MH_MAGIC, MH_MAGIC_64);
+                }
+            }
+
+            if (debug_mode) {
+                debug("Successfully located magic 0x%llx for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
+                debug("Initializing MACH dwarf object binary interface...");
+            }
+
+            dwarf_mach_object_access_init(arch_fd, &context, &binary_interface, &derr);
+            assert(binary_interface);
+
+            if (debug_mode) {
+				debug("MACH dwarf object binary interface initialized, loading DWARF data...");
+			}
+            ret = dwarf_object_init(binary_interface,
+                                            dwarf_error_handler,
+                                            errarg, &dbg, &err);
+			DWARF_ASSERT(ret, err);
+
+			if (debug_mode) {
+				debug("DWARF data loaded.  Extracting UUID.");
+			}
+
+			char uuid[(2 * UUID_LEN) + 1];
+			memset(uuid, 0, (2 * UUID_LEN) + 1);
+			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, (2 * UUID_LEN) + 1);
+			if (debug_mode) {
+				debug("UUID: %s", uuid);
+			}
+			if (guid_buffer_index + (2 * UUID_LEN) + 1 > max_buffer_size) {
+				warning("Unable to append UUID %s to uuid buffer - length exceeds max buffer size %d", uuid, max_buffer_size);
+			}
+			else {
+				strcat(guid_buffer + (guid_buffer_index * sizeof(char)), uuid);
+				guid_buffer_index += (2 * UUID_LEN);
+				if (i < nfat_arch - 1) {
+					strcat(guid_buffer + (guid_buffer_index * sizeof(char)), ",");
+					guid_buffer_index++;
+				}
+			}
+        }
+
+        free(contexts);
+    }
+    else {
+        if (debug_mode) {
+            debug("Magic value 0x%llx does not match FAT_CIGAM value 0x%llx.  Processing as a single architecture dSym.", magic, FAT_CIGAM);
+        }
+        context_t context;
+        memset(&context, 0, sizeof(context_t));
+
+        dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
+        assert(binary_interface);
+
+        ret = dwarf_object_init(binary_interface,
+                                dwarf_error_handler,
+                                errarg, &dbg, &err);
+        DWARF_ASSERT(ret, err);
+
+        char uuid[(2 * UUID_LEN) + 1];
+        memset(uuid, 0, (2 * UUID_LEN) + 1);
+        ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, (2 * UUID_LEN) + 1);
+        if (debug_mode) {
+        	debug("UUID: %s", uuid);
+        }
+        snprintf(guid_buffer, max_buffer_size, "%s", uuid);
+    }
+
+    return ret;
+}
+
+
 int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode) {
     int fd;
     int ret;
+    context_t context;
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
     int derr = 0;
@@ -1298,6 +1577,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         debug("    symbol_buffer: 0x%llx", (long long unsigned int) symbol_buffer);
         debug("    max_buffer_size: %u", (unsigned int) max_buffer_size);
     }
+
+    memset(&context, 0, sizeof(context));
 
     if (!options->dsym_filename) {
         // fatal("no filename specified with -o");
@@ -1338,6 +1619,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
         nfat_arch = ntohl(nfat_arch);
         for (i = 0; i < nfat_arch; i++) {
+        	int arch_fd;
             ret = _read(fd, &context.arch, sizeof(context.arch));
             if (ret < 0) {
                 // fatal("unable to read arch struct");
@@ -1367,7 +1649,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 }
 
                 found = 1;
-                if (lipo_to_tempfile(&fd, magic, context.arch) != 0) {
+                if (lipo_to_tempfile(fd, &arch_fd, magic, &context, debug_mode) != 0) {
                     fatal("unable to extract LIPO to temp file");
                     return EXIT_FAILURE;
                 }
@@ -1398,7 +1680,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         debug("Successfully located magic 0x%llx for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
         debug("Initializing MACH dwarf object binary interface...");
     }
-    dwarf_mach_object_access_init(fd, &binary_interface, &derr);
+    dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
     assert(binary_interface);
 
     if (options->load_address == LONG_MAX)
@@ -1436,7 +1718,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         if (debug_mode) {
             debug("Building DWARF symbol table. Using params options: 0x%llx, dbg: 0x%llx, slide: 0x%llx, addr: 0x%llx, symbol_buffer: 0x%llx, max_buffer_size: %d", options, dbg, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
-        ret = print_dwarf_symbol(options, dbg,
+        ret = print_dwarf_symbol(options, context, dbg,
                              options->load_address - context.intended_addr,
                              symbol_address, symbol_buffer, max_buffer_size);
         if (ret != DW_DLV_OK) {
@@ -1444,7 +1726,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 debug("Successfully build the DWARF symbol table, now resolving the subprogram symbols...");
             }
             derr = print_subprogram_symbol(
-                     options, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
+                     options, context, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
@@ -1463,9 +1745,9 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         if (debug_mode) {
             debug("dSym data does not contain DWARF symbols.  Using symbol table lookup to resolve symbols.");
         }
-        ret = print_symtab_symbol(options, 
+        ret = print_symtab_symbol(options,
                 options->load_address - context.intended_addr,
-                symbol_address, symbol_buffer, max_buffer_size);
+                symbol_address, &context, symbol_buffer, max_buffer_size);
 
         if (ret != DW_DLV_OK)
             if (debug_mode) {
@@ -1485,12 +1767,12 @@ int main(int argc, char *argv[]) {
     int option_index;
     int c;
     int result = 0;
+    int uuid_mode = 0;
     cpu_type_t cpu_type = -1;
     cpu_subtype_t cpu_subtype = -1;
     symbolication_options_t options = default_options;
     Dwarf_Addr address;
 
-    memset(&context, 0, sizeof(context));
 
     while ((c = getopt_long(argc, argv, shortopts, longopts, &option_index))
             >= 0) {
@@ -1522,9 +1804,12 @@ int main(int argc, char *argv[]) {
                 options.cpu_type = cpu_type;
                 options.cpu_subtype = cpu_subtype;
                 break;
-            case 'v':
+            case 'd':
                 debug = 1;
                 break;
+            case 'v':
+				verbose = 1;
+				break;
             case 'g':
                 options.use_globals = 1;
                 break;
@@ -1533,6 +1818,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'C':
                 options.cache_dir = optarg;
+                break;
+            case 'u':
+                uuid_mode = 1;
                 break;
             case 'V':
                 fprintf(stderr, "atosl %s\n", VERSION);
@@ -1548,23 +1836,31 @@ int main(int argc, char *argv[]) {
                 return EXIT_FAILURE;
         }
     }
-    if (argc <= optind) {
-        fatal_usage("no addresses specified");
-        return EXIT_FAILURE;
+    if (uuid_mode) {
+        char uuid_buffer[1024];
+        memset(uuid_buffer, 0, 1024);
+        result = atosl_load_guids(options.dsym_filename, uuid_buffer, 1024, debug);
     }
+    else {
 
-    for (i = optind; i < argc; i++) {
-        Dwarf_Addr addr;
-        errno = 0;
-        addr = strtol(argv[i], (char **)NULL, 16);
-        if (errno != 0) {
-            fatal("invalid address: `%s': %s", argv[i], strerror(errno));
+        if (argc <= optind) {
+            fatal_usage("no addresses specified");
             return EXIT_FAILURE;
         }
-        char symbol_buffer[256];
-        result = atosl_symbolicate(&options, addr, symbol_buffer, 256, debug); 
-        if (result == 0) {
-            printf("%s", symbol_buffer);
+
+        for (i = optind; i < argc; i++) {
+            Dwarf_Addr addr;
+            errno = 0;
+            addr = strtol(argv[i], (char **)NULL, 16);
+            if (errno != 0) {
+                fatal("invalid address: `%s': %s", argv[i], strerror(errno));
+                return EXIT_FAILURE;
+            }
+            char symbol_buffer[256];
+            result = atosl_symbolicate(&options, addr, symbol_buffer, 256, debug); 
+            if (result == 0) {
+                printf("%s", symbol_buffer);
+            }
         }
     }
     return result;

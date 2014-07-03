@@ -44,6 +44,9 @@ void common_warning(const char *file, int lineno, const char *format, ...);
 #define debug(args...) common_debug(__FILE__, __LINE__, args)
 void common_debug(const char *file, int lineno, const char* format, ...);
 
+#define verbose(args...) common_verbose(__FILE__, __LINE__, args)
+void common_verbose(const char *file, int lineno, const char* format, ...);
+
 #define DWARF_ASSERT(ret, err) \
     do { \
         if (ret == DW_DLV_ERROR) { \
