@@ -1321,9 +1321,6 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     int ret;
     int i;
     Dwarf_Obj_Access_Interface *binary_interface = NULL;
-    Dwarf_Ptr errarg = NULL;
-    Dwarf_Debug dbg = NULL;
-    Dwarf_Error err;
     uint32_t magic;
     int derr = 0;
     int guid_buffer_index = 0;
@@ -1495,17 +1492,6 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 				debug("MACH dwarf object binary interface initialized, loading DWARF data...");
 			}
 
-            //dwarf_mach_object_access_internals_t *dwarf_internals = (dwarf_mach_object_access_internals_t *) binary_interface->object;
-
-            //ret = dwarf_object_init(binary_interface,
-            //                                dwarf_error_handler,
-            //                                errarg, &dbg, &err);
-			//DWARF_ASSERT(ret, err);
-
-			//if (debug_mode) {
-			//	debug("DWARF data loaded.  Extracting UUID.");
-			//}
-
 			char uuid[(2 * UUID_LEN) + 1];
 			memset(uuid, 0, (2 * UUID_LEN) + 1);
 			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, (2 * UUID_LEN) + 1);
@@ -1536,11 +1522,6 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 
         dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
         assert(binary_interface);
-//
-//        ret = dwarf_object_init(binary_interface,
-//                                dwarf_error_handler,
-//                                errarg, &dbg, &err);
-//        DWARF_ASSERT(ret, err);
 
         char uuid[(2 * UUID_LEN) + 1];
         memset(uuid, 0, (2 * UUID_LEN) + 1);
@@ -1846,6 +1827,10 @@ int main(int argc, char *argv[]) {
         char uuid_buffer[1024];
         memset(uuid_buffer, 0, 1024);
         result = atosl_load_guids(options.dsym_filename, uuid_buffer, 1024, debug);
+        if (result == 0) {
+            printf("UUID resolution generated an error code: %d\n", result);
+        }
+        printf("%s\n", uuid_buffer);
     }
     else {
 
@@ -1865,8 +1850,9 @@ int main(int argc, char *argv[]) {
             char symbol_buffer[256];
             result = atosl_symbolicate(&options, addr, symbol_buffer, 256, debug); 
             if (result == 0) {
-                printf("%s", symbol_buffer);
+                printf("Symbolication generated an error code: %d\n", result);
             }
+            printf("%s\n", symbol_buffer);
         }
     }
     return result;
