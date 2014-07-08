@@ -1201,7 +1201,7 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
 }
 
-int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t* context, int debug_mode)
+int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t magic, context_t* context, int debug_mode)
 {
     // do the work of lipo... given the arch, copy the data from the source file
     // and update the fd to point to the new file just past the magic.
@@ -1217,7 +1217,7 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
     strncpy(thin_output_file, TEMPLATE, template_len);
 
     if (debug_mode) {
-    	debug("lipo_to_tempfile invoked with parameters source_fd: %d, dest_fd_ref 0x%llx, magic: 0x%llx, context: 0x%llx", source_fd, dest_fd_ref, magic, context);
+    	debug("lipo_to_tempfile invoked with parameters source_fd: %d, dest_fd_ref 0x%x, magic: 0x%x, context: 0x%x", source_fd, dest_fd_ref, magic, context);
 
     	debug("Creating temporary file with template name %s", thin_output_file);
     }
@@ -1252,10 +1252,10 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
 
     size_t map_size = context->arch.size + context->arch.offset;
     if (debug_mode) {
-		debug("Mapped memory size is 0x%llx", map_size);
+		debug("Mapped memory size is %u (0x%x)", map_size, map_size);
 	}
 
-    //void *input_buffer = mmap(0, arch.size + arch.offset, PROT_READ, MAP_FILE|MAP_PRIVATE, *fd_ref, 0);
+    // Memory map the input file data for the current architecture
     void *input_buffer = mmap(0, map_size, PROT_READ, MAP_FILE|MAP_PRIVATE, source_fd, 0);
 
     if (input_buffer == MAP_FAILED) {
@@ -1263,10 +1263,11 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
         return EXIT_FAILURE;
     }
 
+    // Write the current architecture data from the memory mapped region to the new temporary file
     bytes_written = write(thin_fd, &input_buffer[context->arch.offset], context->arch.size + 2 * sizeof(magic));
 
     if (debug)
-        debug("bytes_written = %lld, size = %u", (long long int) bytes_written, context->arch.size);
+        debug("bytes_written = %u (0x%x), size = %u (0x%x)", bytes_written, bytes_written, context->arch.size, context->arch.size);
 
     if (bytes_written < context->arch.size) {
     	if (bytes_written < 0) {
@@ -1278,7 +1279,7 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
         return EXIT_FAILURE;
     }
 
-
+    // Unmap the memory mapped file data
     if (munmap(input_buffer,  context->arch.size + context->arch.offset) != 0) {
         fatal("can't unmap input file. (errno = %d)", errno);
         return EXIT_FAILURE;
@@ -1289,6 +1290,25 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
     	}
     }
 
+    // Reset the file pointer in the source data file back to the original position
+    if (debug) {
+        debug("Seeking back to original position of source file.  address: 0x%x, file descriptor %d.", source_pos, source_fd);
+    }
+    ret = lseek(source_fd, source_pos, SEEK_SET);
+    if (ret < 0) {
+        fatal("unable to seek back to original position of source file.");
+        return EXIT_FAILURE;
+    }
+    else {
+    	if (debug) {
+    		debug("Successful seek back to original position of source file.");
+    	}
+    }
+
+    // Reset the file pointer for the temporary file back to the head of the file, just past the MAGIC value
+    if (debug) {
+        debug("Seeking back to start of thinned file.  address: 0x%x, file descriptor %d.", sizeof(magic), thin_fd);
+    }
     ret = lseek(thin_fd, sizeof(magic), SEEK_SET); //move read pointer to right past the magic header.
     if (ret < 0) {
         fatal("unable to seek back to start of thinned file.");
@@ -1300,6 +1320,7 @@ int lipo_to_tempfile(int source_fd, int* dest_fd_ref, uint32_t magic, context_t*
     	}
     }
 
+    // Store the temporary file descriptor into the out parameter
     *dest_fd_ref = thin_fd;
 
     return 0;
@@ -1329,7 +1350,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         setbuf(stdout, NULL);
         debug("atosl_load_guids invoked with parameters:");
         debug("    dsym_filename: %s", dsym_filename);
-        debug("    guid_buffer: %llx", guid_buffer);
+        debug("    guid_buffer: %x", guid_buffer);
         debug("    max_buffer_size: %d", max_buffer_size);
     }
 
@@ -1357,13 +1378,13 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     }
     else {
         if (debug_mode) {
-            debug("Read magic value 0x%llx from dsym file", magic);
+            debug("Read magic value 0x%x from dsym file", magic);
         }
     }
 
     if (magic == FAT_CIGAM) {
     	if (debug_mode) {
-			debug("Magic value 0x%llx matches FAT_CIGAM value 0x%llx.  Processing as a multi-architecture dSym.", magic, FAT_CIGAM);
+			debug("Magic value 0x%x matches FAT_CIGAM value 0x%x.  Processing as a multi-architecture dSym.", magic, FAT_CIGAM);
 		}
         uint32_t nfat_arch;
 
@@ -1394,18 +1415,21 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 			contexts[i].arch.size = ntohl(contexts[i].arch.size);
 
 			if (debug_mode) {
-				debug("Located architecture #%d: cpu type 0x%x, subtype 0x%x, offset 0x%llx, and size 0x%llx", i,
-						contexts[i].arch.cputype, contexts[i].arch.cpusubtype, contexts[i].arch.offset, contexts[i].arch.size);
+				debug("Located architecture #%d: cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)", i,
+						contexts[i].arch.cputype, contexts[i].arch.cputype, contexts[i].arch.cpusubtype, contexts[i].arch.cpusubtype, contexts[i].arch.offset, contexts[i].arch.offset, contexts[i].arch.size, contexts[i].arch.size);
 			}
         }
 
+        if (debug_mode) {
+            debug("----------------------------------------");
+        }
         // Iterate the fat binary architectures and extract the GUID from each one
         for (i = 0; i < nfat_arch; i++) {
             context_t context = contexts[i];
             int arch_fd;
             if (debug_mode) {
-                debug("Processing architecture for cpu type 0x%x, subtype 0x%x, offset 0x%llx, and size 0x%llx",
-                        context.arch.cputype, context.arch.cpusubtype, context.arch.offset, context.arch.size);
+                debug("Processing architecture for cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)",
+                        context.arch.cputype, context.arch.cputype, context.arch.cpusubtype, context.arch.cpusubtype, context.arch.offset, context.arch.offset, context.arch.size, context.arch.size);
             }
 
             if (context.arch.cputype != CPU_TYPE_I386 &&
@@ -1430,22 +1454,24 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
 
             if (context.arch.cputype == CPU_TYPE_ARM64) {
-//            	warning("Detected 64-bit ARM architecture.  64-bit support is currently disabled.");
-//            	continue;
             	if(debug_mode) {
             		debug("Detected 64-bit ARM architecture.");
             	}
             }
 
+            if(debug_mode) {
+                debug("Executing seek to address 0x%x on file descriptor %d...", context.arch.offset, fd);
+            }
             ret = lseek(fd, context.arch.offset, SEEK_SET);
             if (ret < 0) {
-                fatal("Unable to seek to arch (offset=%ld): %s",
+                fatal("Unable to seek to arch (offset=%x): %s",
                       context.arch.offset, strerror(errno));
                 return EXIT_FAILURE;
             }
             else {
                 if (debug_mode) {
-                    debug("Seek to offset 0x%llx completed successfully.", context.arch.offset);
+                    debug("Seek to offset 0x%x completed successfully on file descriptor %d", context.arch.offset, fd);
+                    debug("  call to lseek returned 0x%x (%d)", ret, ret);
                 }
             }
 
@@ -1456,33 +1482,37 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
             else {
                 if (debug_mode) {
-                    debug("Read architecture magic 0x%llx", magic);
+                    debug("Read architecture magic 0x%x", magic);
+                    debug("  call to _read returned 0x%x (%d)", ret, ret);
                 }
             }
 
-            if (lipo_to_tempfile(fd, &arch_fd, magic, &context, debug_mode) != 0) {
+            if (debug_mode) {
+                debug("Attempting to extract architecture-sspecific DWARF data to temporary file...");
+            }
+            if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, magic, &context, debug_mode) != 0) {
                 fatal("unable to extract LIPO to temp file");
                 return EXIT_FAILURE;
             }
             else {
                 if (debug_mode) {
-                    debug("Successfully executed lipo_to_tempfile");
+                    debug("Successfully extracted architecture-specific DWARF data to temporary file.  Architecture-specific file descriptor: %d", arch_fd);
                 }
             }
 
             if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
-                fatal("Invalid magic for architecture.  Found magic 0x%llx, expected MH_MAGIC (0x%llx) or MH_MAGIC_64 (0x%llx)", magic, MH_MAGIC, MH_MAGIC_64);
+                fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
                 return EXIT_FAILURE;
             }
             else {
                 if (debug_mode) {
-                    debug("Magic 0x%llx matches MH_MAGIC (0x%llx) or MH_MAGIC_64 (0x%llx)", magic, MH_MAGIC, MH_MAGIC_64);
+                    debug("Magic 0x%x matches MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
                 }
             }
 
             if (debug_mode) {
-                debug("Successfully located magic 0x%llx for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
-                debug("Initializing MACH dwarf object binary interface...");
+                debug("Successfully located magic 0x%x for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
+                debug("Initializing MACH dwarf object binary interface from file descriptor %d", arch_fd);
             }
 
             dwarf_mach_object_access_init(arch_fd, &context, &binary_interface, &derr);
@@ -1509,13 +1539,16 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 					guid_buffer_index++;
 				}
 			}
+            if (debug_mode) {
+                debug("----------------------------------------");
+            }
         }
 
         free(contexts);
     }
     else {
         if (debug_mode) {
-            debug("Magic value 0x%llx does not match FAT_CIGAM value 0x%llx.  Processing as a single architecture dSym.", magic, FAT_CIGAM);
+            debug("Magic value 0x%x does not match FAT_CIGAM value 0x%x.  Processing as a single architecture dSym.", magic, FAT_CIGAM);
         }
         context_t context;
         memset(&context, 0, sizeof(context_t));
@@ -1636,7 +1669,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 }
 
                 found = 1;
-                if (lipo_to_tempfile(fd, &arch_fd, magic, &context, debug_mode) != 0) {
+                if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, magic, &context, debug_mode) != 0) {
                     fatal("unable to extract LIPO to temp file");
                     return EXIT_FAILURE;
                 }
