@@ -111,6 +111,8 @@ typedef struct {
 
     struct fat_arch_t arch;
 
+    int fat_arch_fd;
+
     uint8_t uuid[UUID_LEN];
 } context_t;
 
@@ -1355,13 +1357,10 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     }
 
     if (debug_mode) {
-        debug("opening dsym file...");
+        debug("Opening dsym file...");
     }
     fd = open(dsym_filename, O_RDONLY);
     if (fd < 0) {
-        // fatal("unable to open `%s': %s",
-        //       options->dsym_filename,
-        //       strerror(errno));
         fatal("Unable to open dsym file `%s': %s",
               dsym_filename,
               strerror(errno));
@@ -1369,7 +1368,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     }
 
     if (debug_mode) {
-        debug("reading magic from dsym file...");
+        debug("Dsym file opened with file descriptor %d.  Reading magic from dsym file...", fd);
     }
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
@@ -1454,12 +1453,15 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
 
             if (context.arch.cputype == CPU_TYPE_ARM64) {
-            	if(debug_mode) {
+            	if (debug_mode) {
             		debug("Detected 64-bit ARM architecture.");
             	}
             }
 
+            ret = lseek(fd, 0, SEEK_CUR);
+
             if(debug_mode) {
+                debug("Current file descriptor position: %d (0x%x)", ret, ret);
                 debug("Executing seek to address 0x%x on file descriptor %d...", context.arch.offset, fd);
             }
             ret = lseek(fd, context.arch.offset, SEEK_SET);
@@ -1488,7 +1490,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             }
 
             if (debug_mode) {
-                debug("Attempting to extract architecture-sspecific DWARF data to temporary file...");
+                debug("Attempting to extract architecture-specific DWARF data to temporary file...");
             }
             if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, magic, &context, debug_mode) != 0) {
                 fatal("unable to extract LIPO to temp file");
@@ -1621,7 +1623,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     }
 
     if (debug_mode) {
-        debug("reading magic from dsym file...");
+        debug("dsym file opened with file descriptor %d.  Reading magic from dsym file...");
     }
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
