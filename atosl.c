@@ -111,8 +111,6 @@ typedef struct {
 
     struct fat_arch_t arch;
 
-    int fat_arch_fd;
-
     uint8_t uuid[UUID_LEN];
 } context_t;
 
@@ -1087,7 +1085,7 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
     addr -= slide;
 
     if (!arange_buf) {
-        debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%llx, &arange_buf: 0x%llx, &count: 0x%llx, &err: 0x%llx", dbg, &arange_buf, &count, &err);
+        debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%x, &arange_buf: 0x%x, &count: 0x%x, &err: 0x%x", dbg, &arange_buf, &count, &err);
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
@@ -1098,14 +1096,14 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
         DWARF_ASSERT(ret, err);
     }
 
-    debug("invoking dwarf_get_arange with params: &arange_buf: 0x%llx, &count: 0x%llx, addr: 0x%llx, &arange: 0x%llx, &err: 0x%llx", &arange_buf, &count, addr, &arange, &err);
+    debug("invoking dwarf_get_arange with params: &arange_buf: 0x%x, &count: 0x%x, addr: 0x%x, &arange: 0xlx, &err: 0x%x", &arange_buf, &count, addr, &arange, &err);
     ret = dwarf_get_arange(arange_buf, count, addr, &arange, &err);
     DWARF_ASSERT(ret, err);
 
     if (ret == DW_DLV_NO_ENTRY)
         return ret;
 
-    debug("invoking dwarf_get_arange_info_b with params: arange: 0x%llx, &segment: 0x%llx, &segment_entry_size: 0x%llx, &start: 0x%llx, &length: 0x%llx, &cu_die_offset, &err: 0x%llx", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
+    debug("invoking dwarf_get_arange_info_b with params: arange: 0x%x, &segment: 0x%x, &segment_entry_size: 0x%x, &start: 0x%x, &length: 0x%x, &cu_die_offset, &err: 0x%x", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
     ret = dwarf_get_arange_info_b(
             arange,
             &segment,
@@ -1116,14 +1114,14 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
             &err);
     DWARF_ASSERT(ret, err);
 
-    debug("invoking dwarf_offdie with params: dbg: 0x%llx, cu_die_offset: 0x%llx, &cu_die, &err: 0x%llx", dbg, cu_die_offset, &cu_die, &err);
+    debug("invoking dwarf_offdie with params: dbg: 0x%x, cu_die_offset: 0x%x, &cu_die, &err: 0x%x", dbg, cu_die_offset, &cu_die, &err);
     ret = dwarf_offdie(dbg, cu_die_offset, &cu_die, &err);
     DWARF_ASSERT(ret, err);
 
     /* ret = dwarf_print_lines(cu_die, &err, &errcnt); */
     /* DWARF_ASSERT(ret, err); */
 
-    debug("invoking dwarf_srclines with params: cu_die: 0x%llx, &linebuf: 0x%llx, &linecount, &err: 0x%llx", cu_die, &linebuf, &linecount, &err);
+    debug("invoking dwarf_srclines with params: cu_die: 0x%x, &linebuf: 0x%x, &linecount, &err: 0x%x", cu_die, &linebuf, &linecount, &err);
     ret = dwarf_srclines(cu_die, &linebuf, &linecount, &err);
     DWARF_ASSERT(ret, err);
 
@@ -1203,11 +1201,11 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
     return found ? DW_DLV_OK : DW_DLV_NO_ENTRY;
 }
 
-int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t magic, context_t* context, int debug_mode)
+int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t* magic_ref, context_t* context, int debug_mode)
 {
     // do the work of lipo... given the arch, copy the data from the source file
     // and update the fd to point to the new file just past the magic.
-
+	uint32_t magic;
     //create tempfile
     const char * TEMPLATE = "/tmp/atosl.thin.XXXXXX";
     int template_len = strlen(TEMPLATE)+1;
@@ -1219,7 +1217,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     strncpy(thin_output_file, TEMPLATE, template_len);
 
     if (debug_mode) {
-    	debug("lipo_to_tempfile invoked with parameters source_fd: %d, dest_fd_ref 0x%x, magic: 0x%x, context: 0x%x", source_fd, dest_fd_ref, magic, context);
+    	debug("lipo_to_tempfile invoked with parameters source_fd: %d, dest_fd_ref 0x%x, magic_ref: 0x%x, context: 0x%x", source_fd, dest_fd_ref, magic_ref, context);
 
     	debug("Creating temporary file with template name %s", thin_output_file);
     }
@@ -1292,26 +1290,11 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     	}
     }
 
-    // Reset the file pointer in the source data file back to the original position
+    // Reset the file pointer for the temporary file back to the head of the file
     if (debug) {
-        debug("Seeking back to original position of source file.  address: 0x%x, file descriptor %d.", source_pos, source_fd);
+        debug("Seeking back to start of thinned file.  address: 0x%x, file descriptor %d.", 0, thin_fd);
     }
-    ret = lseek(source_fd, source_pos, SEEK_SET);
-    if (ret < 0) {
-        fatal("unable to seek back to original position of source file.");
-        return EXIT_FAILURE;
-    }
-    else {
-    	if (debug) {
-    		debug("Successful seek back to original position of source file.");
-    	}
-    }
-
-    // Reset the file pointer for the temporary file back to the head of the file, just past the MAGIC value
-    if (debug) {
-        debug("Seeking back to start of thinned file.  address: 0x%x, file descriptor %d.", sizeof(magic), thin_fd);
-    }
-    ret = lseek(thin_fd, sizeof(magic), SEEK_SET); //move read pointer to right past the magic header.
+    ret = lseek(thin_fd, 0, SEEK_SET);
     if (ret < 0) {
         fatal("unable to seek back to start of thinned file.");
         return EXIT_FAILURE;
@@ -1322,8 +1305,21 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     	}
     }
 
+    // Read the magic value from the new file descriptor
+    ret = _read(thin_fd, &magic, sizeof(magic));
+	if (ret < 0) {
+		fatal_file(thin_fd);
+		return EXIT_FAILURE;
+	}
+	else {
+		if (debug_mode) {
+			debug("Read architecture-specific magic 0x%x", magic);
+		}
+	}
+
     // Store the temporary file descriptor into the out parameter
     *dest_fd_ref = thin_fd;
+    *magic_ref = magic;
 
     return 0;
 }
@@ -1337,6 +1333,160 @@ static int convert_numeric_guid(context_t context, uint8_t* guid, size_t guid_el
 	}
 	//debug("Converted numeric guid values to %s", uuid);
 	return snprintf(guid_buffer, max_buffer_size, "%s", uuid);
+}
+
+int load_context_count(int fd, uint32_t* nfat_arch_ref, int debug_mode) {
+	int ret;
+	uint32_t nfat_arch;
+
+	// Read the count of fat binary architectures in the DWARF data
+	ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
+	if (ret < 0)
+		fatal_file(fd);
+
+	nfat_arch = ntohl(nfat_arch);
+	if (debug_mode) {
+		debug("dsym file contains %d FAT architectures", nfat_arch);
+		debug("Setting nfat_arch_ref at 0x%x to value %d", nfat_arch_ref, nfat_arch);
+	}
+
+	*nfat_arch_ref = nfat_arch;
+
+	return ret;
+}
+
+int load_contexts(int fd, uint32_t nfat_arch, context_t* contexts, int convert_byte_order, int debug_mode) {
+	int ret;
+	int i;
+
+	// First, extract the architecture contexts
+	for (i = 0; i < nfat_arch; i++) {
+		ret = _read(fd, &(contexts[i].arch), sizeof(contexts[i].arch));
+		if (ret < 0) {
+			fatal("Unable to read arch struct");
+			return EXIT_FAILURE;
+		}
+		if (convert_byte_order) {
+			contexts[i].arch.cputype = ntohl(contexts[i].arch.cputype);
+			contexts[i].arch.cpusubtype = ntohl(contexts[i].arch.cpusubtype);
+			contexts[i].arch.offset = ntohl(contexts[i].arch.offset);
+			contexts[i].arch.size = ntohl(contexts[i].arch.size);
+		}
+		if (debug_mode) {
+			debug("Located architecture #%d: cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)", i,
+					contexts[i].arch.cputype, contexts[i].arch.cputype, contexts[i].arch.cpusubtype, contexts[i].arch.cpusubtype, contexts[i].arch.offset, contexts[i].arch.offset, contexts[i].arch.size, contexts[i].arch.size);
+		}
+	}
+
+	return ret;
+}
+
+int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwarf_Obj_Access_Interface *binary_interface, int* derr, int debug_mode) {
+	int ret;
+	uint32_t magic;
+
+    if (debug_mode) {
+        debug("Processing architecture for cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)",
+                context->arch.cputype, context->arch.cputype,
+                context->arch.cpusubtype, context->arch.cpusubtype,
+                context->arch.offset, context->arch.offset,
+                context->arch.size, context->arch.size);
+    }
+
+    if (context->arch.cputype != CPU_TYPE_I386 &&
+    		context->arch.cputype != CPU_TYPE_ARM &&
+    		context->arch.cputype != CPU_TYPE_ARM64) {
+    	warning("CPU type %d is not recognized.  Skipping this architecture.", context->arch.cputype);
+    	return -1;
+    }
+
+    if (context->arch.cpusubtype != CPU_SUBTYPE_X86_ALL &&
+    		context->arch.cpusubtype != CPU_SUBTYPE_ARM_V6 &&
+    		context->arch.cpusubtype != CPU_SUBTYPE_ARM_V7 &&
+    		context->arch.cpusubtype != CPU_SUBTYPE_ARM_V7S &&
+    		context->arch.cpusubtype != CPU_SUBTYPE_ARM64_ALL) {
+		warning("CPU subtype %d is not recognized.  Skipping this architecture.", context->arch.cpusubtype);
+		return -1;
+	}
+
+    if (context->arch.size == 0) {
+    	warning("Architecture size %d is invalid.  Skipping this architecture.", context->arch.size);
+    	return -1;
+    }
+
+    if (context->arch.cputype == CPU_TYPE_ARM64) {
+    	if (debug_mode) {
+    		debug("Detected 64-bit ARM architecture.");
+    	}
+    }
+
+    ret = lseek(fd, 0, SEEK_CUR);
+
+    if(debug_mode) {
+        debug("Current file descriptor position: %d (0x%x)", ret, ret);
+        debug("Executing seek to address 0x%x on file descriptor %d...", context->arch.offset, fd);
+    }
+    ret = lseek(fd, context->arch.offset, SEEK_SET);
+    if (ret < 0) {
+        fatal("Unable to seek to arch (offset=%x): %s",
+              context->arch.offset, strerror(errno));
+        return EXIT_FAILURE;
+    }
+    else {
+        if (debug_mode) {
+            debug("Seek to offset 0x%x completed successfully on file descriptor %d", context->arch.offset, fd);
+            debug("  call to lseek returned 0x%x (%d)", ret, ret);
+        }
+    }
+
+    ret = _read(fd, &magic, sizeof(magic));
+    if (ret < 0) {
+        fatal_file(fd);
+        return EXIT_FAILURE;
+    }
+    else {
+        if (debug_mode) {
+            debug("Read architecture magic 0x%x", magic);
+            debug("  call to _read returned 0x%x (%d)", ret, ret);
+        }
+    }
+
+    if (debug_mode) {
+        debug("Attempting to extract architecture-specific DWARF data to temporary file...");
+    }
+    if (lipo_to_tempfile(fd, context->arch.offset, arch_fd, &magic, context, debug_mode) != 0) {
+        fatal("unable to extract LIPO to temp file");
+        return EXIT_FAILURE;
+    }
+    else {
+        if (debug_mode) {
+            debug("Successfully extracted architecture-specific DWARF data to temporary file.  Architecture-specific file descriptor: %d", arch_fd);
+        }
+    }
+
+    if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
+        fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
+        return EXIT_FAILURE;
+    }
+    else {
+        if (debug_mode) {
+            debug("Magic 0x%x matches MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
+        }
+    }
+
+    if (debug_mode) {
+        debug("Successfully located magic 0x%x for architecture with CPU type %d, subtype %d", magic, context->arch.cputype, context->arch.cpusubtype);
+        debug("Initializing MACH dwarf object binary interface from file descriptor %d", arch_fd);
+    }
+
+    dwarf_mach_object_access_init(*arch_fd, context, &binary_interface, derr);
+    assert(binary_interface);
+
+    if (debug_mode) {
+		debug("MACH dwarf object binary interface successfully initialized.");
+	}
+
+    return ret;
 }
 
 int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_buffer_size, int debug_mode) {
@@ -1386,37 +1536,29 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 			debug("Magic value 0x%x matches FAT_CIGAM value 0x%x.  Processing as a multi-architecture dSym.", magic, FAT_CIGAM);
 		}
         uint32_t nfat_arch;
-
-        // Read the count of fat binary architectures in the DWARF data
-        ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
-        if (ret < 0)
-            fatal_file(fd);
-
-        nfat_arch = ntohl(nfat_arch);
-        if (debug_mode) {
-            debug("dsym file contains %d FAT architectures", nfat_arch);
-        }
-
         context_t* contexts = NULL;
-        contexts = malloc(nfat_arch * sizeof(context_t));
-        memset(contexts, 0, nfat_arch * sizeof(context_t));
 
-        // First, extract the architecture contexts
-        for (i = 0; i < nfat_arch; i++) {
-        	ret = _read(fd, &(contexts[i].arch), sizeof(contexts[i].arch));
-			if (ret < 0) {
-				fatal("Unable to read arch struct");
-				return EXIT_FAILURE;
-			}
-			contexts[i].arch.cputype = ntohl(contexts[i].arch.cputype);
-			contexts[i].arch.cpusubtype = ntohl(contexts[i].arch.cpusubtype);
-			contexts[i].arch.offset = ntohl(contexts[i].arch.offset);
-			contexts[i].arch.size = ntohl(contexts[i].arch.size);
-
+        ret = load_context_count(fd, &nfat_arch, debug_mode);
+        if (ret < 0) {
+			fatal("Failed to load context count from file descriptor %d", fd);
+		}
+		else {
 			if (debug_mode) {
-				debug("Located architecture #%d: cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)", i,
-						contexts[i].arch.cputype, contexts[i].arch.cputype, contexts[i].arch.cpusubtype, contexts[i].arch.cpusubtype, contexts[i].arch.offset, contexts[i].arch.offset, contexts[i].arch.size, contexts[i].arch.size);
+				debug("Loaded context count %d contexts from dsym headers.", nfat_arch);
 			}
+		}
+
+        contexts = malloc(nfat_arch * sizeof(context_t));
+		memset(contexts, 0, nfat_arch * sizeof(context_t));
+
+        ret = load_contexts(fd, nfat_arch, contexts, 1, debug_mode);
+        if (ret < 0) {
+        	fatal("Failed to load contexts from file descriptor %d", fd);
+        }
+        else {
+        	if (debug_mode) {
+        		debug("Loaded %d contexts from dsym headers.", nfat_arch);
+        	}
         }
 
         if (debug_mode) {
@@ -1424,105 +1566,14 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         }
         // Iterate the fat binary architectures and extract the GUID from each one
         for (i = 0; i < nfat_arch; i++) {
+        	if (debug_mode) {
+        		debug("Processing FAT architecture %d of %d", i + 1, nfat_arch);
+        		debug("Contexts: 0x%x", contexts);
+        	}
             context_t context = contexts[i];
             int arch_fd;
-            if (debug_mode) {
-                debug("Processing architecture for cpu type %d (0x%x), subtype %d (0x%x), offset %u (0x%x), and size %u (0x%x)",
-                        context.arch.cputype, context.arch.cputype, context.arch.cpusubtype, context.arch.cpusubtype, context.arch.offset, context.arch.offset, context.arch.size, context.arch.size);
-            }
 
-            if (context.arch.cputype != CPU_TYPE_I386 &&
-            		context.arch.cputype != CPU_TYPE_ARM &&
-            		context.arch.cputype != CPU_TYPE_ARM64) {
-            	warning("CPU type %d is not recognized.  Skipping this architecture.", context.arch.cputype);
-            	continue;
-            }
-
-            if (context.arch.cpusubtype != CPU_SUBTYPE_X86_ALL &&
-            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V6 &&
-            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V7 &&
-            		context.arch.cpusubtype != CPU_SUBTYPE_ARM_V7S &&
-            		context.arch.cpusubtype != CPU_SUBTYPE_ARM64_ALL) {
-				warning("CPU subtype %d is not recognized.  Skipping this architecture.", context.arch.cpusubtype);
-				continue;
-			}
-
-            if (context.arch.size == 0) {
-            	warning("Architecture size %d is invalid.  Skipping this architecture.", context.arch.size);
-            	continue;
-            }
-
-            if (context.arch.cputype == CPU_TYPE_ARM64) {
-            	if (debug_mode) {
-            		debug("Detected 64-bit ARM architecture.");
-            	}
-            }
-
-            ret = lseek(fd, 0, SEEK_CUR);
-
-            if(debug_mode) {
-                debug("Current file descriptor position: %d (0x%x)", ret, ret);
-                debug("Executing seek to address 0x%x on file descriptor %d...", context.arch.offset, fd);
-            }
-            ret = lseek(fd, context.arch.offset, SEEK_SET);
-            if (ret < 0) {
-                fatal("Unable to seek to arch (offset=%x): %s",
-                      context.arch.offset, strerror(errno));
-                return EXIT_FAILURE;
-            }
-            else {
-                if (debug_mode) {
-                    debug("Seek to offset 0x%x completed successfully on file descriptor %d", context.arch.offset, fd);
-                    debug("  call to lseek returned 0x%x (%d)", ret, ret);
-                }
-            }
-
-            ret = _read(fd, &magic, sizeof(magic));
-            if (ret < 0) {
-                fatal_file(fd);
-                return EXIT_FAILURE;
-            }
-            else {
-                if (debug_mode) {
-                    debug("Read architecture magic 0x%x", magic);
-                    debug("  call to _read returned 0x%x (%d)", ret, ret);
-                }
-            }
-
-            if (debug_mode) {
-                debug("Attempting to extract architecture-specific DWARF data to temporary file...");
-            }
-            if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, magic, &context, debug_mode) != 0) {
-                fatal("unable to extract LIPO to temp file");
-                return EXIT_FAILURE;
-            }
-            else {
-                if (debug_mode) {
-                    debug("Successfully extracted architecture-specific DWARF data to temporary file.  Architecture-specific file descriptor: %d", arch_fd);
-                }
-            }
-
-            if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
-                fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
-                return EXIT_FAILURE;
-            }
-            else {
-                if (debug_mode) {
-                    debug("Magic 0x%x matches MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
-                }
-            }
-
-            if (debug_mode) {
-                debug("Successfully located magic 0x%x for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
-                debug("Initializing MACH dwarf object binary interface from file descriptor %d", arch_fd);
-            }
-
-            dwarf_mach_object_access_init(arch_fd, &context, &binary_interface, &derr);
-            assert(binary_interface);
-
-            if (debug_mode) {
-				debug("MACH dwarf object binary interface initialized, loading DWARF data...");
-			}
+            ret = load_architecture_binary_data(fd, &arch_fd, &context, binary_interface, &derr, debug_mode);
 
 			char uuid[(2 * UUID_LEN) + 1];
 			memset(uuid, 0, (2 * UUID_LEN) + 1);
@@ -1574,7 +1625,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode) {
     int fd;
     int ret;
-    context_t context;
+    context_t* symbol_context;
     Dwarf_Debug dbg = NULL;
     Dwarf_Error err;
     int derr = 0;
@@ -1595,12 +1646,11 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         debug("        cpu_type: 0x%x", options->cpu_type);
         debug("        cpu_subtype: 0x%x", options->cpu_subtype);
         debug("        cache_dir: %s", options->cache_dir ? options->cache_dir : "NULL");
-        debug("    symbol_address: 0x%llx", symbol_address);
-        debug("    symbol_buffer: 0x%llx", (long long unsigned int) symbol_buffer);
+        debug("    symbol_address: 0x%x", symbol_address);
+        debug("    symbol_buffer: 0x%x", (long long unsigned int) symbol_buffer);
         debug("    max_buffer_size: %u", (unsigned int) max_buffer_size);
     }
 
-    memset(&context, 0, sizeof(context));
 
     if (!options->dsym_filename) {
         // fatal("no filename specified with -o");
@@ -1613,9 +1663,6 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     }
     fd = open(options->dsym_filename, O_RDONLY);
     if (fd < 0) {
-        // fatal("unable to open `%s': %s",
-        //       options->dsym_filename,
-        //       strerror(errno));
         fatal("Unable to open dsym file `%s': %s",
               options->dsym_filename,
               strerror(errno));
@@ -1631,65 +1678,126 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         return EXIT_FAILURE;
     }
 
+    if (debug_mode) {
+    	debug("Read magic value 0x%x from dsym file.", magic);
+    }
+
     if (magic == FAT_CIGAM) {
-        /* Find the architecture we want.. */
-        uint32_t nfat_arch;
+    	if (debug_mode) {
+			debug("Magic value 0x%x matches FAT_CIGAM value 0x%x.  Processing as a multi-architecture dSym.", magic, FAT_CIGAM);
+		}
+		uint32_t nfat_arch;
+		context_t* contexts = NULL;
 
-        ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
-        if (ret < 0)
-            fatal_file(fd);
+		ret = load_context_count(fd, &nfat_arch, debug_mode);
+		if (ret < 0) {
+			fatal("Failed to load context count from file descriptor %d", fd);
+		}
+		else {
+			if (debug_mode) {
+				debug("Loaded context count %d contexts from dsym headers.", nfat_arch);
+			}
+		}
 
-        nfat_arch = ntohl(nfat_arch);
+		contexts = malloc(nfat_arch * sizeof(context_t));
+		memset(contexts, 0, nfat_arch * sizeof(context_t));
+
+		ret = load_contexts(fd, nfat_arch, contexts, 1, debug_mode);
+		if (ret < 0) {
+			fatal("Failed to load contexts from file descriptor %d", fd);
+		}
+		else {
+			if (debug_mode) {
+				debug("Loaded %d contexts from dsym headers.", nfat_arch);
+			}
+		}
+
+		if (debug_mode) {
+			debug("----------------------------------------");
+		}
+
+        /* Find the architecture that matches the architecture for the request */
         for (i = 0; i < nfat_arch; i++) {
         	int arch_fd;
-            ret = _read(fd, &context.arch, sizeof(context.arch));
-            if (ret < 0) {
-                // fatal("unable to read arch struct");
-                fatal("Unable to read arch struct");
-                return EXIT_FAILURE;
-            }
-
-            context.arch.cputype = ntohl(context.arch.cputype);
-            context.arch.cpusubtype = ntohl(context.arch.cpusubtype);
-            context.arch.offset = ntohl(context.arch.offset);
-            context.arch.size = ntohl(context.arch.size);
+        	context_t context = contexts[i];
 
             if ((context.arch.cputype == options->cpu_type) &&
                 (context.arch.cpusubtype == options->cpu_subtype)) {
-                /* good! */
-                ret = lseek(fd, context.arch.offset, SEEK_SET);
+            	found = 1;
+            	if (debug_mode) {
+                	debug("Requested architecture located at index %d.", i);
+                }
+                if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, &magic, &context, debug_mode) != 0) {
+                    fatal("Failed to extract LIPO to temporary file.");
+                    return EXIT_FAILURE;
+                }
+                // Close the source fd and then set it to the architecture-specific fd
+                ret = close(fd);
                 if (ret < 0) {
-                    fatal("Unable to seek to arch (offset=%ld): %s",
-                          context.arch.offset, strerror(errno));
-                    return EXIT_FAILURE;
+                	if (debug_mode) {
+                		warning("Failed to close source file descriptor %d: (%d) %s", fd, errno, strerror(errno));
+                	}
                 }
-
-                ret = _read(fd, &magic, sizeof(magic));
-                if (ret < 0) {
-                    fatal_file(fd);
-                    return EXIT_FAILURE;
-                }
-
-                found = 1;
-                if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, magic, &context, debug_mode) != 0) {
-                    fatal("unable to extract LIPO to temp file");
-                    return EXIT_FAILURE;
-                }
+                fd = arch_fd;
+                symbol_context = &context;
                 break;
             } else {
-                /* skip */
+                // This architecture is not the requested architecture, skip over it
                 if (debug_mode) {
-                    debug("Skipping arch: %x %x",
-                            context.arch.cputype, context.arch.cpusubtype);
+                    debug("Skipping architecture at index %d with cpu type: %d (0x%x) and cpu subtype: %d (0x%x)",
+                            i, context.arch.cputype, context.arch.cputype, context.arch.cpusubtype, context.arch.cpusubtype);
+                    debug("----------------------------------------");
                 }
             }
         }
     } else {
+    	// If the dSym is a single-arch DWARF file, it is de-facto "found"
+    	if (debug_mode) {
+			debug("Magic value 0x%x does not match FAT_CIGAM value 0x%x.  Processing as a single-architecture dSym.", magic, FAT_CIGAM);
+		}
+    	uint32_t nfat_arch = 1;
         found = 1;
+        context_t* contexts;
+        off_t position;
+
+        contexts = malloc(sizeof(context_t));
+		memset(contexts, 0, sizeof(context_t));
+
+		// get the position of the file descriptor
+		ret = lseek(fd, 0, SEEK_CUR);
+		if (ret < 0) {
+			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
+		}
+		else {
+			position = ret;
+			if (debug_mode) {
+				debug("File descriptor position prior to context load: %d (0x%x)", position, position);
+			}
+		}
+
+		ret = load_contexts(fd, nfat_arch, contexts, 0, debug_mode);
+		if (ret < 0) {
+			fatal("Failed to read architecture header.");
+			return EXIT_FAILURE;
+		}
+		else {
+			symbol_context = contexts;
+		}
+
+		// re-position the file descriptor position to before the MACH header so that the binary interface initialization works
+		ret = lseek(fd, position, SEEK_SET);
+		if (ret < 0) {
+			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
+		}
+		else {
+			if (debug_mode) {
+				debug("Successfully reset the file descriptor position to %d (0x%x)", ret, ret);
+			}
+		}
     }
 
     if (!found) {
-        fatal("No valid architectures found");
+        fatal("No valid architectures found in dsym file.");
         return EXIT_FAILURE;
     }
 
@@ -1699,14 +1807,14 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     }
 
     if (debug_mode) {
-        debug("Successfully located magic 0x%llx for architecture with CPU type %d, subtype %d", magic, context.arch.cputype, context.arch.cpusubtype);
+        debug("Successfully located magic 0x%x for architecture with CPU type %d and subtype %d", magic, symbol_context->arch.cputype, symbol_context->arch.cpusubtype);
         debug("Initializing MACH dwarf object binary interface...");
     }
-    dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
+    dwarf_mach_object_access_init(fd, symbol_context, &binary_interface, &derr);
     assert(binary_interface);
 
     if (options->load_address == LONG_MAX)
-        options->load_address = context.intended_addr;
+        options->load_address = symbol_context->intended_addr;
 
     if (debug_mode) {
         debug("Initializing dwarf object...");
@@ -1730,32 +1838,32 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         if (debug_mode) {
             debug("Attempting to parse and load DWARF subprogram data...");
         }
-        context.subprograms =
+        symbol_context->subprograms =
             subprograms_load(dbg,
-                             context.uuid,
+            		symbol_context->uuid,
                              options->use_globals ? SUBPROGRAMS_GLOBALS :
                                                    SUBPROGRAMS_CUS,
                              &opts);
 
         if (debug_mode) {
-            debug("Building DWARF symbol table. Using params options: 0x%llx, dbg: 0x%llx, slide: 0x%llx, addr: 0x%llx, symbol_buffer: 0x%llx, max_buffer_size: %d", options, dbg, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
+            debug("Building DWARF symbol table. Using params options: 0x%x, dbg: 0x%x, slide: 0x%x, addr: 0x%x, symbol_buffer: 0x%x, max_buffer_size: %d",
+            		options, dbg, options->load_address - symbol_context->intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
-        ret = print_dwarf_symbol(options, context, dbg,
-                             options->load_address - context.intended_addr,
+        ret = print_dwarf_symbol(options, *symbol_context, dbg,
+                             options->load_address - symbol_context->intended_addr,
                              symbol_address, symbol_buffer, max_buffer_size);
         if (ret != DW_DLV_OK) {
             if (debug_mode) {
-                debug("Successfully build the DWARF symbol table, now resolving the subprogram symbols...");
+                debug("Failed to locate the symbol in the DWARF symbol table.  Attempting to resolve the symbol in the subprogram symbols...");
             }
             derr = print_subprogram_symbol(
-                     options, context, options->load_address - context.intended_addr, symbol_address, symbol_buffer, max_buffer_size);
+                     options, *symbol_context, options->load_address - symbol_context->intended_addr, symbol_address, symbol_buffer, max_buffer_size);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
             if (debug_mode) {
-                debug("Successfully build the DWARF symbol table, now resolving the subprogram symbols...");
+                debug("Failed to locate the symbol in the DWARF symbol table or the subprogram symbols.  Returning the symbol address as the symbol name.");
             }
-            //printf("%llux\n", symbol_address);
             snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
         }
 
@@ -1765,22 +1873,21 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         DWARF_ASSERT(ret, err);
     } else {
         if (debug_mode) {
-            debug("dSym data does not contain DWARF symbols.  Using symbol table lookup to resolve symbols.");
+            debug("dSym data does not contain DWARF symbols.  Using symtab lookup to resolve symbols.");
         }
         ret = print_symtab_symbol(options,
-                options->load_address - context.intended_addr,
-                symbol_address, &context, symbol_buffer, max_buffer_size);
+                options->load_address - symbol_context->intended_addr,
+                symbol_address, symbol_context, symbol_buffer, max_buffer_size);
 
         if (ret != DW_DLV_OK)
             if (debug_mode) {
-                debug("Unable to locate symbol with address 0x%llx, returning the symbol address.", symbol_address);
+                debug("Unable to locate symbol in the symtab data, returning the symbol address.");
             }
-            //printf("%llux\n", symbol_address);
             snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
     }
 
     close(fd);
-
+    //free(symbol_context);
     return ret;
 }
 
