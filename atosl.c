@@ -1454,9 +1454,10 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     if (debug_mode) {
         debug("Attempting to extract architecture-specific DWARF data to temporary file...");
     }
-    if (lipo_to_tempfile(fd, context->arch.offset, arch_fd, &magic, context, debug_mode) != 0) {
+    ret = lipo_to_tempfile(fd, context->arch.offset, arch_fd, &magic, context, debug_mode);
+    if (ret) {
         fatal("unable to extract LIPO to temp file");
-        return EXIT_FAILURE;
+        return ret;
     }
     else {
         if (debug_mode) {
@@ -1466,7 +1467,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
 
     if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
         fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
-        return EXIT_FAILURE;
+        return EINVAL;
     }
     else {
         if (debug_mode) {
@@ -1615,6 +1616,10 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     else {
         if (debug_mode) {
             debug("Magic value 0x%x does not match FAT_CIGAM value 0x%x.  Processing as a single architecture dSym.", magic, FAT_CIGAM);
+        }
+        if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
+            fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
+            return EINVAL;
         }
         context_t context;
         memset(&context, 0, sizeof(context_t));
