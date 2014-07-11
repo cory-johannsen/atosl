@@ -225,8 +225,8 @@ int parse_section(dwarf_mach_object_access_internals_t *obj)
 
     s = malloc(sizeof(*s));
     if (!s) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for DWARF section");
+        return ENOMEM;
     }
 
     memset(s, 0, sizeof(*s));
@@ -279,8 +279,8 @@ int parse_section_64(dwarf_mach_object_access_internals_t *obj)
 
     s = malloc(sizeof(*s));
     if (!s) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for DWARF section-64");
+        return ENOMEM;
     }
 
     memset(s, 0, sizeof(*s));
@@ -442,8 +442,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, context_t* context, 
 
     strtable = malloc(symtab.strsize);
     if (!strtable) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for strtable.");
+        return ENOMEM;
     }
 
     pos = lseek(obj->handle, 0, SEEK_CUR);
@@ -473,8 +473,8 @@ int parse_symtab(dwarf_mach_object_access_internals_t *obj, context_t* context, 
     context->nsymbols = symtab.nsyms;
     context->symlist = malloc(sizeof(struct symbol_t) * symtab.nsyms);
     if (!context->symlist) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for context symbol list.");
+        return ENOMEM;
     }
     current = context->symlist;
 
@@ -528,8 +528,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj, context_t* 
 
     linkedit_data = malloc(linkedit.datasize);
     if (!linkedit_data) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for linkedit data.");
+        return ENOMEM;
     }
 
     orig_pos = lseek(obj->handle, 0, SEEK_CUR);
@@ -567,8 +567,8 @@ int parse_function_starts(dwarf_mach_object_access_internals_t *obj, context_t* 
 
     context->funclist = func = malloc(sizeof(*func) * context->nfuncs);
     if (!func) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for context function list.");
+        return ENOMEM;
     }
 
     encoded_data = (Dwarf_Small *)linkedit_data;
@@ -904,8 +904,8 @@ static int dwarf_mach_object_access_load_section(
 
     addr = malloc(sec->mach_section.size);
     if (!addr) {
-        fatal("unable to allocate memory");
-        return EXIT_FAILURE;
+        fatal("Failed to allocate memory for DWARF data.");
+        return ENOMEM;
     }
 
     ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
@@ -972,8 +972,8 @@ int dwarf_mach_object_access_init(
 
     internals = malloc(sizeof(*internals));
     if (!internals) {
-        fatal("unable to allocate memory");
-        return res;
+        fatal("Failed to allocate memory for DWARF macho object access internals.");
+        return ENOMEM;
     }
 
     memset(internals, 0, sizeof(*internals));
@@ -1211,8 +1211,8 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     int template_len = strlen(TEMPLATE)+1;
     char *thin_output_file = malloc(template_len);
     if (thin_output_file == NULL) {
-        fatal("Unable to malloc space for tempfilename");
-        return EXIT_FAILURE;
+        fatal("Failed to malloc space for tempfilename");
+        return ENOMEM;
     }
     strncpy(thin_output_file, TEMPLATE, template_len);
 
@@ -1514,7 +1514,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         fatal("Unable to open dsym file `%s': %s",
               dsym_filename,
               strerror(errno));
-        return EXIT_FAILURE;
+        return ENOENT;
     }
 
     if (debug_mode) {
@@ -1523,7 +1523,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
-        return EXIT_FAILURE;
+        return ret;
     }
     else {
         if (debug_mode) {
@@ -1541,6 +1541,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         ret = load_context_count(fd, &nfat_arch, debug_mode);
         if (ret < 0) {
 			fatal("Failed to load context count from file descriptor %d", fd);
+            return ret;
 		}
 		else {
 			if (debug_mode) {
@@ -1549,11 +1550,16 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 		}
 
         contexts = malloc(nfat_arch * sizeof(context_t));
+        if (!contexts) {
+            fatal("Failed to allocate memory for the DWARF contexts.");
+            return ENOMEM;
+        }
 		memset(contexts, 0, nfat_arch * sizeof(context_t));
 
         ret = load_contexts(fd, nfat_arch, contexts, 1, debug_mode);
         if (ret < 0) {
         	fatal("Failed to load contexts from file descriptor %d", fd);
+            return ret;
         }
         else {
         	if (debug_mode) {
@@ -1575,18 +1581,25 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 
             ret = load_architecture_binary_data(fd, &arch_fd, &context, binary_interface, &derr, debug_mode);
 
-			char uuid[(2 * UUID_LEN) + 1];
-			memset(uuid, 0, (2 * UUID_LEN) + 1);
-			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, (2 * UUID_LEN) + 1);
+			char uuid[UUID_STR_LEN];
+			memset(uuid, 0, UUID_STR_LEN);
+			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
+            if (ret < 0) {
+                fatal("Failed to write GUID to character buffer. (%d) %s", errno, strerror(errno));
+                break;
+            }
+            else {
+                ret = 0;
+            }
 			if (debug_mode) {
 				debug("UUID: %s", uuid);
 			}
-			if (guid_buffer_index + (2 * UUID_LEN) + 1 > max_buffer_size) {
+			if (guid_buffer_index + UUID_STR_LEN > max_buffer_size) {
 				warning("Unable to append UUID %s to uuid buffer - length exceeds max buffer size %d", uuid, max_buffer_size);
 			}
 			else {
 				strcat(guid_buffer + (guid_buffer_index * sizeof(char)), uuid);
-				guid_buffer_index += (2 * UUID_LEN);
+				guid_buffer_index += UUID_STR_LEN - 1;
 				if (i < nfat_arch - 1) {
 					strcat(guid_buffer + (guid_buffer_index * sizeof(char)), ",");
 					guid_buffer_index++;
@@ -1609,9 +1622,11 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
         assert(binary_interface);
 
-        char uuid[(2 * UUID_LEN) + 1];
-        memset(uuid, 0, (2 * UUID_LEN) + 1);
-        ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, (2 * UUID_LEN) + 1);
+        char uuid[UUID_STR_LEN];
+        memset(uuid, 0, UUID_STR_LEN);
+        ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
+        if (ret > 0)
+            ret = 0;
         if (debug_mode) {
         	debug("UUID: %s", uuid);
         }
@@ -1655,7 +1670,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     if (!options->dsym_filename) {
         // fatal("no filename specified with -o");
         fatal("No dsym filename specified.");
-        return EXIT_FAILURE;
+        return ENOENT;
     }
 
     if (debug_mode) {
@@ -1666,7 +1681,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         fatal("Unable to open dsym file `%s': %s",
               options->dsym_filename,
               strerror(errno));
-        return EXIT_FAILURE;
+        return fd;
     }
 
     if (debug_mode) {
@@ -1675,7 +1690,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
-        return EXIT_FAILURE;
+        return ret;
     }
 
     if (debug_mode) {
@@ -1692,6 +1707,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		ret = load_context_count(fd, &nfat_arch, debug_mode);
 		if (ret < 0) {
 			fatal("Failed to load context count from file descriptor %d", fd);
+            return ret;
 		}
 		else {
 			if (debug_mode) {
@@ -1700,11 +1716,16 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		}
 
 		contexts = malloc(nfat_arch * sizeof(context_t));
+        if (!contexts) {
+            fatal("Failled to allocate memory for contexts.");
+            return ENOMEM;
+        }
 		memset(contexts, 0, nfat_arch * sizeof(context_t));
 
 		ret = load_contexts(fd, nfat_arch, contexts, 1, debug_mode);
 		if (ret < 0) {
 			fatal("Failed to load contexts from file descriptor %d", fd);
+            return ret;
 		}
 		else {
 			if (debug_mode) {
@@ -1727,9 +1748,11 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
             	if (debug_mode) {
                 	debug("Requested architecture located at index %d.", i);
                 }
-                if (lipo_to_tempfile(fd, context.arch.offset, &arch_fd, &magic, &context, debug_mode) != 0) {
+
+                ret = lipo_to_tempfile(fd, context.arch.offset, &arch_fd, &magic, &context, debug_mode);
+                if (ret) {
                     fatal("Failed to extract LIPO to temporary file.");
-                    return EXIT_FAILURE;
+                    return ret;
                 }
                 // Close the source fd and then set it to the architecture-specific fd
                 ret = close(fd);
@@ -1737,6 +1760,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 	if (debug_mode) {
                 		warning("Failed to close source file descriptor %d: (%d) %s", fd, errno, strerror(errno));
                 	}
+                    return ret;
                 }
                 fd = arch_fd;
                 symbol_context = &context;
@@ -1761,12 +1785,17 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         off_t position;
 
         contexts = malloc(sizeof(context_t));
+        if (!contexts) {
+            fatal("Failled to allocate memory for contexts.");
+            return ENOMEM;
+        }
 		memset(contexts, 0, sizeof(context_t));
 
 		// get the position of the file descriptor
 		ret = lseek(fd, 0, SEEK_CUR);
 		if (ret < 0) {
 			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
+            return ret;
 		}
 		else {
 			position = ret;
@@ -1778,7 +1807,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		ret = load_contexts(fd, nfat_arch, contexts, 0, debug_mode);
 		if (ret < 0) {
 			fatal("Failed to read architecture header.");
-			return EXIT_FAILURE;
+			return ret;
 		}
 		else {
 			symbol_context = contexts;
@@ -1788,6 +1817,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		ret = lseek(fd, position, SEEK_SET);
 		if (ret < 0) {
 			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
+            return ret;
 		}
 		else {
 			if (debug_mode) {
@@ -1798,12 +1828,12 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
     if (!found) {
         fatal("No valid architectures found in dsym file.");
-        return EXIT_FAILURE;
+        return EINVAL;
     }
 
     if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
         fatal("invalid magic for architecture");
-        return EXIT_FAILURE;
+        return EINVAL;
     }
 
     if (debug_mode) {
@@ -1887,7 +1917,6 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     }
 
     close(fd);
-    //free(symbol_context);
     return ret;
 }
 

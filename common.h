@@ -16,6 +16,7 @@
 #define USAGE "Usage: atosl -o|--dsym <FILENAME> [OPTIONS]... <ADDRESS>..."
 
 #define UUID_LEN 16
+#define UUID_STR_LEN ((2 * UUID_LEN) + 1)
 
 #ifndef MAX
 #define MAX(x,y) ((x)>(y)?(x):(y))
