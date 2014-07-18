@@ -1262,7 +1262,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
 
     if (input_buffer == MAP_FAILED) {
         fatal("can't mmap file (errno %d)", errno);
-        return MAP_FAILED;;
+        return errno;
     }
 
     // Write the current architecture data from the memory mapped region to the new temporary file
@@ -1595,7 +1595,7 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
 			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
             if (ret < 0) {
                 fatal("Failed to write GUID to character buffer. (%d) %s", errno, strerror(errno));
-                free(contexts)
+                free(contexts);
                 return ret;
             }
             else {
@@ -1935,7 +1935,6 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
             snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
     }
 
-    free(contexts);
     close(fd);
     return ret;
 }
