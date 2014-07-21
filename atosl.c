@@ -1498,21 +1498,21 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     return ret;
 }
 
-int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_buffer_size, int debug_mode) {
+int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t max_guid_buffer_size, int debug_mode) {
     int fd;
     int ret;
     int i;
     Dwarf_Obj_Access_Interface *binary_interface = NULL;
     uint32_t magic;
     int derr = 0;
-    int guid_buffer_index = 0;
 
     if (debug_mode) {
         setbuf(stdout, NULL);
         debug("atosl_load_guids invoked with parameters:");
         debug("    dsym_filename: %s", dsym_filename);
-        debug("    guid_buffer: %x", guid_buffer);
-        debug("    max_buffer_size: %d", max_buffer_size);
+        debug("    guid_result: %x", max_guid_result_count);
+        debug("    max_guid_result_count: %d", max_guid_result_count);
+        debug("    max_guid_buffer_size: %d", max_guid_buffer_size);
     }
 
     if (debug_mode) {
@@ -1579,48 +1579,52 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         if (debug_mode) {
             debug("----------------------------------------");
         }
+
         // Iterate the fat binary architectures and extract the GUID from each one
+        int guid_count = 0;
         for (i = 0; i < nfat_arch; i++) {
-        	if (debug_mode) {
-        		debug("Processing FAT architecture %d of %d", i + 1, nfat_arch);
-        		debug("Contexts: 0x%x", contexts);
-        	}
-            context_t context = contexts[i];
-            int arch_fd;
+        	if (i < max_guid_result_count) {
+                if (debug_mode) {
+                    debug("Processing FAT architecture %d of %d", i + 1, nfat_arch);
+                    debug(" CPU type: %d, subtype: %d", contexts[i].arch.cputype, contexts[i].arch.cpusubtype);
+                }
+                guid_result[i].cpu_type = contexts[i].arch.cputype; 
+                guid_result[i].cpu_subtype = contexts[i].arch.cpusubtype; 
+                context_t context = contexts[i];
+                int arch_fd;
 
-            ret = load_architecture_binary_data(fd, &arch_fd, &context, binary_interface, &derr, debug_mode);
+                ret = load_architecture_binary_data(fd, &arch_fd, &context, binary_interface, &derr, debug_mode);
 
-			char uuid[UUID_STR_LEN];
-			memset(uuid, 0, UUID_STR_LEN);
-			ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
-            if (ret < 0) {
-                fatal("Failed to write GUID to character buffer. (%d) %s", errno, strerror(errno));
-                free(contexts);
-                return ret;
+                char uuid[UUID_STR_LEN];
+                memset(uuid, 0, UUID_STR_LEN);
+                ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
+                if (ret < 0) {
+                    fatal("Failed to write GUID to character buffer. (%d) %s", errno, strerror(errno));
+                    free(contexts);
+                    return ret;
+                }
+                else {
+                    ret = 0;
+                }
+                if (debug_mode) {
+                    debug("(%d,%d) UUID: %s", context.arch.cputype, context.arch.cpusubtype, uuid);
+                }
+                snprintf(guid_result[i].guid_buffer, max_guid_buffer_size, "%s", uuid);
+                guid_count ++;
             }
             else {
-                ret = 0;
+                if (debug_mode) {
+                    debug("Skipping FAT architecture %d of %d - dSym contains more architectures than result array can hold (%d)", i + 1, nfat_arch, max_guid_result_count);
+                }
             }
-			if (debug_mode) {
-				debug("UUID: %s", uuid);
-			}
-			if (guid_buffer_index + UUID_STR_LEN > max_buffer_size) {
-				warning("Unable to append UUID %s to uuid buffer - length exceeds max buffer size %d", uuid, max_buffer_size);
-			}
-			else {
-				strcat(guid_buffer + (guid_buffer_index * sizeof(char)), uuid);
-				guid_buffer_index += UUID_STR_LEN - 1;
-				if (i < nfat_arch - 1) {
-					strcat(guid_buffer + (guid_buffer_index * sizeof(char)), ",");
-					guid_buffer_index++;
-				}
-			}
+            
             if (debug_mode) {
                 debug("----------------------------------------");
             }
         }
-
+        
         free(contexts);
+        ret = guid_count;
     }
     else {
         if (debug_mode) {
@@ -1630,8 +1634,29 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
             fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
             return EINVAL;
         }
+        if (max_guid_result_count < 1) {
+            if (debug_mode) {
+                debug("Max GUID result count is less than 1: %d", max_guid_result_count);
+            }
+            return EINVAL;
+        }
         context_t context;
         memset(&context, 0, sizeof(context_t));
+        ret = load_contexts(fd, 1, &context, 0, debug_mode);
+        if (ret < 0) {
+        	fatal("Failed to load contexts from file descriptor %d", fd);
+            return ret;
+        }
+        else {
+        	if (debug_mode) {
+        		debug("Loaded 1 context from dsym headers.");
+        	}
+        }
+
+        ret = lseek(fd, sizeof(magic), SEEK_SET);
+        if (ret < 0) {
+            return ret;
+        }
 
         dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
         assert(binary_interface);
@@ -1640,18 +1665,20 @@ int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_bu
         memset(uuid, 0, UUID_STR_LEN);
         ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
         if (ret > 0)
-            ret = 0;
+            ret = 1;
         if (debug_mode) {
-        	debug("UUID: %s", uuid);
+        	debug("(%d,%d) UUID: %s", context.arch.cputype, context.arch.cpusubtype, uuid);
         }
-        snprintf(guid_buffer, max_buffer_size, "%s", uuid);
+        snprintf(guid_result->guid_buffer, max_guid_buffer_size, "%s", uuid);
+        guid_result->cpu_type = context.arch.cputype;
+        guid_result->cpu_subtype = context.arch.cpusubtype;
     }
 
     return ret;
 }
 
 
-int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode) {
+int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, symbolication_result_t* symbolication_result, size_t max_symbolication_buffer_size, int debug_mode) {
     int fd;
     int ret;
     context_t* symbol_context;
@@ -1676,8 +1703,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         debug("        cpu_subtype: 0x%x", options->cpu_subtype);
         debug("        cache_dir: %s", options->cache_dir ? options->cache_dir : "NULL");
         debug("    symbol_address: 0x%x", symbol_address);
-        debug("    symbol_buffer: 0x%x", (long long unsigned int) symbol_buffer);
-        debug("    max_buffer_size: %u", (unsigned int) max_buffer_size);
+        debug("    symbolication_result: 0x%x", (long long unsigned int) symbolication_result);
+        debug("    max_symbolication_buffer_size: %u", (unsigned int) max_symbolication_buffer_size);
     }
 
 
@@ -1802,7 +1829,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
         contexts = malloc(sizeof(context_t));
         if (!contexts) {
-            fatal("Failled to allocate memory for contexts.");
+            fatal("Failed to allocate memory for contexts.");
             return ENOMEM;
         }
 		memset(contexts, 0, sizeof(context_t));
@@ -1896,24 +1923,24 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
         if (debug_mode) {
             debug("Building DWARF symbol table. Using params options: 0x%x, dbg: 0x%x, slide: 0x%x, addr: 0x%x, symbol_buffer: 0x%x, max_buffer_size: %d",
-            		options, dbg, options->load_address - symbol_context->intended_addr, symbol_address, symbol_buffer, max_buffer_size);
+            		options, dbg, options->load_address - symbol_context->intended_addr, symbol_address, symbolication_result->symbol_buffer, max_symbolication_buffer_size);
         }
         ret = print_dwarf_symbol(options, *symbol_context, dbg,
                              options->load_address - symbol_context->intended_addr,
-                             symbol_address, symbol_buffer, max_buffer_size);
+                             symbol_address, symbolication_result->symbol_buffer, max_symbolication_buffer_size);
         if (ret != DW_DLV_OK) {
             if (debug_mode) {
                 debug("Failed to locate the symbol in the DWARF symbol table.  Attempting to resolve the symbol in the subprogram symbols...");
             }
             derr = print_subprogram_symbol(
-                     options, *symbol_context, options->load_address - symbol_context->intended_addr, symbol_address, symbol_buffer, max_buffer_size);
+                     options, *symbol_context, options->load_address - symbol_context->intended_addr, symbol_address, symbolication_result->symbol_buffer, max_symbolication_buffer_size);
         }
 
         if ((ret != DW_DLV_OK) && derr) {
             if (debug_mode) {
                 debug("Failed to locate the symbol in the DWARF symbol table or the subprogram symbols.  Returning the symbol address as the symbol name.");
             }
-            snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
+            snprintf(symbolication_result->symbol_buffer, max_symbolication_buffer_size, "0x%llx", symbol_address);
         }
 
         dwarf_mach_object_access_finish(binary_interface);
@@ -1926,14 +1953,17 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         }
         ret = print_symtab_symbol(options,
                 options->load_address - symbol_context->intended_addr,
-                symbol_address, symbol_context, symbol_buffer, max_buffer_size);
+                symbol_address, symbol_context, symbolication_result->symbol_buffer, max_symbolication_buffer_size);
 
-        if (ret != DW_DLV_OK)
+        if (ret != DW_DLV_OK) {
             if (debug_mode) {
                 debug("Unable to locate symbol in the symtab data, returning the symbol address.");
             }
-            snprintf(symbol_buffer, max_buffer_size, "0x%llx", symbol_address);
+            snprintf(symbolication_result->symbol_buffer, max_symbolication_buffer_size, "0x%llx", symbol_address);
+        }
     }
+    symbolication_result->cpu_type = symbol_context->arch.cputype;
+    symbolication_result->cpu_subtype = symbol_context->arch.cpusubtype;
 
     close(fd);
     return ret;
@@ -2014,13 +2044,50 @@ int main(int argc, char *argv[]) {
         }
     }
     if (uuid_mode) {
-        char uuid_buffer[1024];
-        memset(uuid_buffer, 0, 1024);
-        result = atosl_load_guids(options.dsym_filename, uuid_buffer, 1024, debug);
-        if (result == 0) {
+        guid_load_result_t guid_result[8];
+        memset(guid_result, 0, 8 * sizeof(guid_load_result_t));
+        for (i = 0; i < 8; i++) {
+            guid_result[i].guid_buffer = malloc(1024);
+            memset(guid_result[i].guid_buffer, 0, 1024);
+        }
+
+        result = atosl_load_guids(options.dsym_filename, guid_result, 8, 1024, debug);
+        if (result < 0) {
             printf("UUID resolution generated an error code: %d\n", result);
         }
-        printf("%s\n", uuid_buffer);
+        for (i = 0; i < result; i++) {
+            // printf("CPU type: %d\n", guid_result[i].cpu_type);
+            // printf("CPU subtype: %d\n", guid_result[i].cpu_subtype);
+            switch (guid_result[i].cpu_type) {
+                case CPU_TYPE_ARM:
+                    printf("ARM");
+                    break;
+                case CPU_TYPE_ARM64:
+                    printf("ARM64");
+                    break;
+                case CPU_TYPE_I386:
+                    printf("i386");
+                    break;
+            }
+            switch (guid_result[i].cpu_subtype) {
+                case CPU_SUBTYPE_ARM_V6:
+                    printf("v6");
+                    break;
+                case CPU_SUBTYPE_ARM_V7:
+                    printf("v7");
+                    break;
+                case CPU_SUBTYPE_ARM_V7S:
+                    printf("v7s");
+                    break;
+                case CPU_SUBTYPE_ARM64_ALL:
+                    printf("(all)");
+                    break;
+                case CPU_SUBTYPE_X86_ALL:
+                    printf("(all)");
+                    break;
+            }
+            printf(" - %s\n", guid_result[i].guid_buffer);
+        }
     }
     else {
 
@@ -2037,12 +2104,15 @@ int main(int argc, char *argv[]) {
                 fatal("invalid address: `%s': %s", argv[i], strerror(errno));
                 return EXIT_FAILURE;
             }
-            char symbol_buffer[256];
-            result = atosl_symbolicate(&options, addr, symbol_buffer, 256, debug); 
+            symbolication_result_t symbol_result;
+            memset(&symbol_result, 0, sizeof(symbolication_result_t));
+            symbol_result.symbol_buffer = malloc(256);
+            memset(symbol_result.symbol_buffer, 0, 256);
+            result = atosl_symbolicate(&options, addr, &symbol_result, 256, debug); 
             if (result == 0) {
                 printf("Symbolication generated an error code: %d\n", result);
             }
-            printf("%s\n", symbol_buffer);
+            printf("%s\n", symbol_result.symbol_buffer);
         }
     }
     return result;

@@ -172,15 +172,35 @@ typedef struct {
     const char *cache_dir;
 } symbolication_options_t;
 
+typedef struct {
+    char* guid_buffer;
+    cpu_type_t cpu_type;
+    cpu_subtype_t cpu_subtype;
+} guid_load_result_t;
+
+typedef struct {
+    char* symbol_buffer;
+    cpu_type_t cpu_type;
+    cpu_subtype_t cpu_subtype;
+} symbolication_result_t;
+
 /**
  * Loads the UUIDs from the specified dSym file and returns them to the caller
+ *
+ * @param dsym_filename (in) File system name of the dSym data file to process
+ * @param guid_result (out) Pointer to an array of guild_load_result_t instances that hold the result of invocation.
+ * @param max_guid_result_count (in) The maximum number of results to be populated in the guid_result out array.
+ * @param max_guid_buffer_size Maximum size for the GUID buffer contained within each guid_load_result_t struct.  This is required to prevent buffer overflows.
+ * @param debug_mode
+ *
+ * @return The count of items populated in the guid_result out array on success, errno indicating error condition on failure.
  **/
-int atosl_load_guids(const char* dsym_filename, char* guid_buffer, size_t max_buffer_size, int debug_mode);
+int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t max_guid_buffer_size, int debug_mode);
 
 /**
 * Symbolicates the requested symbol address and stores the result in the given buffer.
 * The output of symbolication will be truncated to fit the buffer size if the length exceeds bufferSize.
 **/
-int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, char* symbol_buffer, size_t max_buffer_size, int debug_mode);
+int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_address, symbolication_result_t* symbolication_result, size_t max_symbolication_buffer_size, int debug_mode);
 
 #endif /* ATOSL _*/
