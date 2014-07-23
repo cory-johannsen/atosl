@@ -1233,7 +1233,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     ret = unlink(thin_output_file);
     if (ret) {
         fatal("Failed to unlink file %s", thin_output_file);
-        return ret;
+        return EXIT_FAILURE;
     }
 
     free(thin_output_file);
@@ -1247,7 +1247,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     ret = fstat(thin_fd, &stat_buf); 
     if (ret) {
         fatal("Failed to stat tmpfile!");
-        return ret;
+        return EXIT_FAILURE;
     }
 
     off_t bytes_written = 0;
@@ -1262,7 +1262,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
 
     if (input_buffer == MAP_FAILED) {
         fatal("can't mmap file (errno %d)", errno);
-        return errno;
+        return EXIT_FAILURE;
     }
 
     // Write the current architecture data from the memory mapped region to the new temporary file
@@ -1278,13 +1278,13 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     	else {
     		fatal("short write");
     	}
-        return errno;
+        return EXIT_FAILURE;
     }
 
     // Unmap the memory mapped file data
     if (munmap(input_buffer,  context->arch.size + context->arch.offset) != 0) {
         fatal("can't unmap input file. (errno = %d)", errno);
-        return errno;
+        return EXIT_FAILURE;
     }
     else {
     	if (debug) {
@@ -1299,7 +1299,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     ret = lseek(thin_fd, 0, SEEK_SET);
     if (ret < 0) {
         fatal("unable to seek back to start of thinned file.");
-        return ret;
+        return EXIT_FAILURE;
     }
     else {
     	if (debug) {
@@ -1311,7 +1311,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     ret = _read(thin_fd, &magic, sizeof(magic));
 	if (ret < 0) {
 		fatal_file(thin_fd);
-		return ret;
+		return EXIT_FAILURE;
 	}
 	else {
 		if (debug_mode) {
@@ -1323,7 +1323,7 @@ int lipo_to_tempfile(int source_fd, off_t source_pos, int* dest_fd_ref, uint32_t
     *dest_fd_ref = thin_fd;
     *magic_ref = magic;
 
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 static int convert_numeric_guid(context_t context, uint8_t* guid, size_t guid_element_count, char* guid_buffer, size_t max_buffer_size) {
@@ -1333,7 +1333,6 @@ static int convert_numeric_guid(context_t context, uint8_t* guid, size_t guid_el
 	for (uuid_index = 0; uuid_index < guid_element_count; uuid_index ++) {
 		sprintf(uuid + (2 * uuid_index * sizeof(char)), "%.2x", context.uuid[uuid_index]);
 	}
-	//debug("Converted numeric guid values to %s", uuid);
 	return snprintf(guid_buffer, max_buffer_size, "%s", uuid);
 }
 
@@ -1345,7 +1344,7 @@ int load_context_count(int fd, uint32_t* nfat_arch_ref, int debug_mode) {
 	ret = _read(fd, &nfat_arch, sizeof(nfat_arch));
 	if (ret < 0) {
 		fatal_file(fd);
-        return ret;
+        return EXIT_FAILURE;
     }
 
 	nfat_arch = ntohl(nfat_arch);
@@ -1368,7 +1367,7 @@ int load_contexts(int fd, uint32_t nfat_arch, context_t* contexts, int convert_b
 		ret = _read(fd, &(contexts[i].arch), sizeof(contexts[i].arch));
 		if (ret < 0) {
 			fatal("Unable to read arch struct");
-			return ret;
+            return EXIT_FAILURE;
 		}
 		if (convert_byte_order) {
 			contexts[i].arch.cputype = ntohl(contexts[i].arch.cputype);
@@ -1382,7 +1381,7 @@ int load_contexts(int fd, uint32_t nfat_arch, context_t* contexts, int convert_b
 		}
 	}
 
-	return ret;
+	return EXIT_SUCCESS;
 }
 
 int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwarf_Obj_Access_Interface *binary_interface, int* derr, int debug_mode) {
@@ -1401,7 +1400,8 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     		context->arch.cputype != CPU_TYPE_ARM &&
     		context->arch.cputype != CPU_TYPE_ARM64) {
     	warning("CPU type %d is not recognized.  Skipping this architecture.", context->arch.cputype);
-    	return EINVAL;
+        errno = EINVAL;
+    	return EXIT_FAILURE;
     }
 
     if (context->arch.cpusubtype != CPU_SUBTYPE_X86_ALL &&
@@ -1410,12 +1410,14 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     		context->arch.cpusubtype != CPU_SUBTYPE_ARM_V7S &&
     		context->arch.cpusubtype != CPU_SUBTYPE_ARM64_ALL) {
 		warning("CPU subtype %d is not recognized.  Skipping this architecture.", context->arch.cpusubtype);
-		return EINVAL;
+        errno = EINVAL;
+    	return EXIT_FAILURE;
 	}
 
     if (context->arch.size == 0) {
     	warning("Architecture size %d is invalid.  Skipping this architecture.", context->arch.size);
-    	return EINVAL;
+        errno = EINVAL;
+    	return EXIT_FAILURE;
     }
 
     if (context->arch.cputype == CPU_TYPE_ARM64) {
@@ -1426,7 +1428,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
 
     ret = lseek(fd, 0, SEEK_CUR);
     if (ret < 0) {
-        return ret;
+        return EXIT_SUCCESS;
     }
 
     if(debug_mode) {
@@ -1437,8 +1439,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     if (ret < 0) {
         fatal("Unable to seek to arch (offset=%x): %s",
               context->arch.offset, strerror(errno));
-            // TODO: return usable error code
-        return ret;
+        return EXIT_FAILURE;
     }
     else {
         if (debug_mode) {
@@ -1450,7 +1451,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
-        return ret;
+        return EXIT_FAILURE;
     }
     else {
         if (debug_mode) {
@@ -1475,7 +1476,8 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
 
     if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
         fatal("Invalid magic for architecture.  Found magic 0x%x, expected MH_MAGIC (0x%x) or MH_MAGIC_64 (0x%x)", magic, MH_MAGIC, MH_MAGIC_64);
-        return EINVAL;
+        errno = EINVAL;
+        return EXIT_FAILURE;
     }
     else {
         if (debug_mode) {
@@ -1495,7 +1497,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
 		debug("MACH dwarf object binary interface successfully initialized.");
 	}
 
-    return ret;
+    return EXIT_SUCCESS;
 }
 
 int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t max_guid_buffer_size, int debug_mode) {
@@ -1523,7 +1525,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         fatal("Unable to open dsym file `%s': %s",
               dsym_filename,
               strerror(errno));
-        return fd;
+        return EXIT_FAILURE;
     }
 
     if (debug_mode) {
@@ -1532,7 +1534,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
-        return ret;
+        return EXIT_FAILURE;
     }
     else {
         if (debug_mode) {
@@ -1550,7 +1552,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         ret = load_context_count(fd, &nfat_arch, debug_mode);
         if (ret < 0) {
 			fatal("Failed to load context count from file descriptor %d", fd);
-            return ret;
+            return EXIT_FAILURE;
 		}
 		else {
 			if (debug_mode) {
@@ -1561,14 +1563,15 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         contexts = malloc(nfat_arch * sizeof(context_t));
         if (!contexts) {
             fatal("Failed to allocate memory for the DWARF contexts.");
-            return ENOMEM;
+            errno = ENOMEM;
+            return EXIT_FAILURE;
         }
 		memset(contexts, 0, nfat_arch * sizeof(context_t));
 
         ret = load_contexts(fd, nfat_arch, contexts, 1, debug_mode);
         if (ret < 0) {
         	fatal("Failed to load contexts from file descriptor %d", fd);
-            return ret;
+            return EXIT_FAILURE;
         }
         else {
         	if (debug_mode) {
@@ -1601,10 +1604,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
                 if (ret < 0) {
                     fatal("Failed to write GUID to character buffer. (%d) %s", errno, strerror(errno));
                     free(contexts);
-                    return ret;
-                }
-                else {
-                    ret = 0;
+                    return EXIT_FAILURE;
                 }
                 if (debug_mode) {
                     debug("(%d,%d) UUID: %s", context.arch.cputype, context.arch.cpusubtype, uuid);
@@ -1624,7 +1624,6 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         }
         
         free(contexts);
-        ret = guid_count;
     }
     else {
         if (debug_mode) {
@@ -1655,7 +1654,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
 
         ret = lseek(fd, sizeof(magic), SEEK_SET);
         if (ret < 0) {
-            return ret;
+            return EXIT_FAILURE;
         }
 
         dwarf_mach_object_access_init(fd, &context, &binary_interface, &derr);
@@ -1664,8 +1663,6 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         char uuid[UUID_STR_LEN];
         memset(uuid, 0, UUID_STR_LEN);
         ret = convert_numeric_guid(context, context.uuid, UUID_LEN, uuid, UUID_STR_LEN);
-        if (ret > 0)
-            ret = 1;
         if (debug_mode) {
         	debug("(%d,%d) UUID: %s", context.arch.cputype, context.arch.cpusubtype, uuid);
         }
@@ -1674,7 +1671,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         guid_result->cpu_subtype = context.arch.cpusubtype;
     }
 
-    return ret;
+    return EXIT_SUCCESS;
 }
 
 
@@ -1710,7 +1707,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
     if (!options->dsym_filename) {
         fatal("No dsym filename specified.");
-        return ENOENT;
+        errno = ENOENT;
+        return EXIT_FAILURE;
     }
 
     if (debug_mode) {
@@ -1721,7 +1719,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         fatal("Unable to open dsym file `%s': %s",
               options->dsym_filename,
               strerror(errno));
-        return fd;
+        return EXIT_FAILURE;
     }
 
     if (debug_mode) {
@@ -1730,7 +1728,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     ret = _read(fd, &magic, sizeof(magic));
     if (ret < 0) {
         fatal_file(fd);
-        return ret;
+        return EXIT_FAILURE;
     }
 
     if (debug_mode) {
@@ -1747,7 +1745,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		ret = load_context_count(fd, &nfat_arch, debug_mode);
 		if (ret < 0) {
 			fatal("Failed to load context count from file descriptor %d", fd);
-            return ret;
+            return EXIT_FAILURE;
 		}
 		else {
 			if (debug_mode) {
@@ -1758,7 +1756,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		contexts = malloc(nfat_arch * sizeof(context_t));
         if (!contexts) {
             fatal("Failled to allocate memory for contexts.");
-            return ENOMEM;
+            errno = ENOMEM;
+            return EXIT_FAILURE;
         }
 		memset(contexts, 0, nfat_arch * sizeof(context_t));
 
@@ -1766,7 +1765,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		if (ret < 0) {
 			fatal("Failed to load contexts from file descriptor %d", fd);
             free(contexts);
-            return ret;
+            return EXIT_FAILURE;
 		}
 		else {
 			if (debug_mode) {
@@ -1794,7 +1793,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 if (ret) {
                     fatal("Failed to extract LIPO to temporary file.");
                     free(contexts);
-                    return ret;
+                    return EXIT_FAILURE;
                 }
                 // Close the source fd and then set it to the architecture-specific fd
                 ret = close(fd);
@@ -1803,7 +1802,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
                 		warning("Failed to close source file descriptor %d: (%d) %s", fd, errno, strerror(errno));
                 	}
                     free(contexts);
-                    return ret;
+                    return EXIT_FAILURE;
                 }
                 fd = arch_fd;
                 symbol_context = &context;
@@ -1830,7 +1829,8 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
         contexts = malloc(sizeof(context_t));
         if (!contexts) {
             fatal("Failed to allocate memory for contexts.");
-            return ENOMEM;
+            errno = ENOMEM;
+            return EXIT_FAILURE;
         }
 		memset(contexts, 0, sizeof(context_t));
 
@@ -1839,7 +1839,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		if (ret < 0) {
 			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
             free(contexts);
-            return ret;
+            return EXIT_FAILURE;
 		}
 		else {
 			position = ret;
@@ -1852,7 +1852,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		if (ret < 0) {
 			fatal("Failed to read architecture header.");
             free(contexts);
-			return ret;
+			return EXIT_FAILURE;
 		}
 		else {
 			symbol_context = contexts;
@@ -1863,7 +1863,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 		if (ret < 0) {
 			fatal("Failed to set file descriptor position to precede the MACH header: (%d) %s", errno, strerror(errno));
             free(contexts);
-            return ret;
+            return EXIT_FAILURE;
 		}
 		else {
 			if (debug_mode) {
@@ -1874,12 +1874,14 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
 
     if (!found) {
         fatal("No valid architectures found in dsym file.");
-        return EINVAL;
+        errno = EINVAL;
+        return EXIT_FAILURE;
     }
 
     if (magic != MH_MAGIC && magic != MH_MAGIC_64) {
         fatal("invalid magic for architecture");
-        return EINVAL;
+        errno = EINVAL;
+        return EXIT_FAILURE;
     }
 
     if (debug_mode) {
