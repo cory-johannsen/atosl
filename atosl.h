@@ -190,12 +190,13 @@ typedef struct {
  * @param dsym_filename (in) File system name of the dSym data file to process
  * @param guid_result (out) Pointer to an array of guild_load_result_t instances that hold the result of invocation.
  * @param max_guid_result_count (in) The maximum number of results to be populated in the guid_result out array.
+ * @param result_count (out) The number of results found in the data file.
  * @param max_guid_buffer_size Maximum size for the GUID buffer contained within each guid_load_result_t struct.  This is required to prevent buffer overflows.
  * @param debug_mode
  *
- * @return The count of items populated in the guid_result out array on success, errno indicating error condition on failure.
+ * @return EXIT_SUCCESS on success, EXIT_FAILURE otherwise
  **/
-int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t max_guid_buffer_size, int debug_mode);
+int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t* result_count, size_t max_guid_buffer_size, int debug_mode);
 
 /**
 * Symbolicates the requested symbol address and stores the result in the given buffer.

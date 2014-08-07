@@ -852,6 +852,7 @@ static int dwarf_mach_object_access_get_section_info(
         Dwarf_Obj_Access_Section *ret_scn,
         int *error)
 {
+    //verbose("dwarf_mach_object_access_get_section_info called - obj_in: 0x%x, section_index: %d, ret_scn: 0x%x, error: 0x%x", obj_in, section_index, ret_scn, error);
     int i;
     dwarf_mach_object_access_internals_t *obj =
         (dwarf_mach_object_access_internals_t *)obj_in;
@@ -1085,25 +1086,25 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
     addr -= slide;
 
     if (!arange_buf) {
-        debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%x, &arange_buf: 0x%x, &count: 0x%x, &err: 0x%x", dbg, &arange_buf, &count, &err);
+        // debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%x, &arange_buf: 0x%x, &count: 0x%x, &err: 0x%x", dbg, &arange_buf, &count, &err);
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
     else {
-        debug("arange_buf is already defined with address 0x%llx, NULLing it out now.", arange_buf);
+        // debug("arange_buf is already defined with address 0x%llx, NULLing it out now.", arange_buf);
         arange_buf = NULL;
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
 
-    debug("invoking dwarf_get_arange with params: &arange_buf: 0x%x, &count: 0x%x, addr: 0x%x, &arange: 0xlx, &err: 0x%x", &arange_buf, &count, addr, &arange, &err);
+    // debug("invoking dwarf_get_arange with params: &arange_buf: 0x%x, &count: 0x%x, addr: 0x%x, &arange: 0xlx, &err: 0x%x", &arange_buf, &count, addr, &arange, &err);
     ret = dwarf_get_arange(arange_buf, count, addr, &arange, &err);
     DWARF_ASSERT(ret, err);
 
     if (ret == DW_DLV_NO_ENTRY)
         return ret;
 
-    debug("invoking dwarf_get_arange_info_b with params: arange: 0x%x, &segment: 0x%x, &segment_entry_size: 0x%x, &start: 0x%x, &length: 0x%x, &cu_die_offset, &err: 0x%x", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
+    // debug("invoking dwarf_get_arange_info_b with params: arange: 0x%x, &segment: 0x%x, &segment_entry_size: 0x%x, &start: 0x%x, &length: 0x%x, &cu_die_offset, &err: 0x%x", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
     ret = dwarf_get_arange_info_b(
             arange,
             &segment,
@@ -1114,14 +1115,14 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
             &err);
     DWARF_ASSERT(ret, err);
 
-    debug("invoking dwarf_offdie with params: dbg: 0x%x, cu_die_offset: 0x%x, &cu_die, &err: 0x%x", dbg, cu_die_offset, &cu_die, &err);
+    // debug("invoking dwarf_offdie with params: dbg: 0x%x, cu_die_offset: 0x%x, &cu_die, &err: 0x%x", dbg, cu_die_offset, &cu_die, &err);
     ret = dwarf_offdie(dbg, cu_die_offset, &cu_die, &err);
     DWARF_ASSERT(ret, err);
 
     /* ret = dwarf_print_lines(cu_die, &err, &errcnt); */
     /* DWARF_ASSERT(ret, err); */
 
-    debug("invoking dwarf_srclines with params: cu_die: 0x%x, &linebuf: 0x%x, &linecount, &err: 0x%x", cu_die, &linebuf, &linecount, &err);
+    // debug("invoking dwarf_srclines with params: cu_die: 0x%x, &linebuf: 0x%x, &linecount, &err: 0x%x", cu_die, &linebuf, &linecount, &err);
     ret = dwarf_srclines(cu_die, &linebuf, &linecount, &err);
     DWARF_ASSERT(ret, err);
 
@@ -1500,7 +1501,7 @@ int load_architecture_binary_data(int fd, int* arch_fd, context_t* context, Dwar
     return EXIT_SUCCESS;
 }
 
-int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t max_guid_buffer_size, int debug_mode) {
+int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result, size_t max_guid_result_count, size_t* result_count, size_t max_guid_buffer_size, int debug_mode) {
     int fd;
     int ret;
     int i;
@@ -1622,7 +1623,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
                 debug("----------------------------------------");
             }
         }
-        
+        *result_count = guid_count;
         free(contexts);
     }
     else {
@@ -1669,6 +1670,7 @@ int atosl_load_guids(const char* dsym_filename, guid_load_result_t* guid_result,
         snprintf(guid_result->guid_buffer, max_guid_buffer_size, "%s", uuid);
         guid_result->cpu_type = context.arch.cputype;
         guid_result->cpu_subtype = context.arch.cpusubtype;
+        *result_count = 1;
     }
 
     return EXIT_SUCCESS;
@@ -2053,11 +2055,12 @@ int main(int argc, char *argv[]) {
             memset(guid_result[i].guid_buffer, 0, 1024);
         }
 
-        result = atosl_load_guids(options.dsym_filename, guid_result, 8, 1024, debug);
+        size_t result_count = 0;
+        result = atosl_load_guids(options.dsym_filename, guid_result, 8, &result_count, 1024, debug);
         if (result < 0) {
             printf("UUID resolution generated an error code: %d\n", result);
         }
-        for (i = 0; i < result; i++) {
+        for (i = 0; i < result_count; i++) {
             // printf("CPU type: %d\n", guid_result[i].cpu_type);
             // printf("CPU subtype: %d\n", guid_result[i].cpu_subtype);
             switch (guid_result[i].cpu_type) {
