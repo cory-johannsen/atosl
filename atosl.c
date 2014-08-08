@@ -852,31 +852,92 @@ static int dwarf_mach_object_access_get_section_info(
         Dwarf_Obj_Access_Section *ret_scn,
         int *error)
 {
-    //verbose("dwarf_mach_object_access_get_section_info called - obj_in: 0x%x, section_index: %d, ret_scn: 0x%x, error: 0x%x", obj_in, section_index, ret_scn, error);
+    verbose("dwarf_mach_object_access_get_section_info called - obj_in: 0x%x, section_index: %d, ret_scn: 0x%x, error: 0x%x", obj_in, section_index, ret_scn, error);
     int i;
     dwarf_mach_object_access_internals_t *obj =
         (dwarf_mach_object_access_internals_t *)obj_in;
+    verbose("Successfully cast obj_in to dwarf_mach_object_access_internals_t: 0x%x", obj);
 
     if (section_index >= obj->section_count) {
+        verbose("dwarf_mach_object_access_get_section_info error: section index exceeds section count.");
         *error = DW_DLE_MDE;
         return DW_DLV_ERROR;
     }
 
-    struct dwarf_section_t *sec = obj->sections;
-    for (i = 0; i < section_index; i++) {
-        sec = sec->next;
+    verbose("Searching for section %d", section_index);
+    if (obj->sections) {
+        if (verbose) {
+            verbose("Using 32-bit dwarf sections.");
+        }
+        struct dwarf_section_t *sec = obj->sections;
+        for (i = 0; i < section_index; i++) {
+            //verbose("Evaluating section 0x%x at index %d.  section name: %s", sec, i, sec->mach_section.sectname);
+
+            sec = sec->next;
+        }
+
+        if(!sec) {
+            fatal("No DWARF section located with index %d.", section_index);
+            *error = DW_DLE_MDE;
+            return DW_DLV_ERROR;
+        }
+        //if(!sec->mach_section) {
+        //    fatal("Invalid DWARF section located with index %d: section does not contain a MACH section data element.", section_index);
+        //    *error = DW_DLE_MDE;
+        //    return DW_DLV_ERROR;
+        //}
+        verbose("Located dwarf section 0x%x at index %d", sec, section_index);
+
+        sec->mach_section.sectname[1] = '.';
+        ret_scn->size = sec->mach_section.size;
+        ret_scn->addr = sec->mach_section.addr;
+        ret_scn->name = sec->mach_section.sectname+1;
+        if (strcmp(ret_scn->name, ".debug_pubnames__DWARF") == 0)
+            ret_scn->name = ".debug_pubnames";
+
+        ret_scn->link = 0; /* rela section or from symtab to strtab */
+        ret_scn->entrysize = 0;
+    }
+    else if(obj->sections_64) {
+        if (verbose) {
+            verbose("Using 64-bit dwarf sections.");
+        }
+        struct dwarf_section_64_t *sec = obj->sections_64;
+        for (i = 0; i < section_index; i++) {
+            //verbose("Evaluating section 0x%x at index %d.  section name: %s", sec, i, sec->mach_section.sectname);
+
+            sec = sec->next;
+        }
+
+        if(!sec) {
+            fatal("No DWARF section located with index %d.", section_index);
+            *error = DW_DLE_MDE;
+            return DW_DLV_ERROR;
+        }
+        //if(!sec->mach_section) {
+        //    fatal("Invalid DWARF section located with index %d: section does not contain a MACH section data element.", section_index);
+        //    *error = DW_DLE_MDE;
+        //    return DW_DLV_ERROR;
+        //}
+        verbose("Located dwarf section 0x%x at index %d. section name: %s", sec, section_index, sec->mach_section.sectname);;
+
+        sec->mach_section.sectname[1] = '.';
+        ret_scn->size = sec->mach_section.size;
+        ret_scn->addr = sec->mach_section.addr;
+        ret_scn->name = sec->mach_section.sectname+1;
+        if (strcmp(ret_scn->name, ".debug_pubnames__DWARF") == 0)
+            ret_scn->name = ".debug_pubnames";
+
+        ret_scn->link = 0; /* rela section or from symtab to strtab */
+        ret_scn->entrysize = 0;
+    }
+    else {
+        fatal("No dwarf sections defined in DWARF data.");
+        *error = DW_DLE_MDE;
+        return DW_DLV_ERROR;
     }
 
-    sec->mach_section.sectname[1] = '.';
-    ret_scn->size = sec->mach_section.size;
-    ret_scn->addr = sec->mach_section.addr;
-    ret_scn->name = sec->mach_section.sectname+1;
-    if (strcmp(ret_scn->name, ".debug_pubnames__DWARF") == 0)
-        ret_scn->name = ".debug_pubnames";
-
-    ret_scn->link = 0; /* rela section or from symtab to strtab */
-    ret_scn->entrysize = 0;
-
+    verbose("dwarf_mach_object_access_get_section_info exiting normally.");
     return DW_DLV_OK;
 }
 
@@ -898,30 +959,63 @@ static int dwarf_mach_object_access_load_section(
         return DW_DLV_ERROR;
     }
 
-    struct dwarf_section_t *sec = obj->sections;
-    for (i = 0; i < section_index; i++) {
-        sec = sec->next;
-    }
+    if (obj->sections) {
+        struct dwarf_section_t *sec = obj->sections;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
 
-    addr = malloc(sec->mach_section.size);
-    if (!addr) {
-        fatal("Failed to allocate memory for DWARF data.");
-        return ENOMEM;
-    }
+        addr = malloc(sec->mach_section.size);
+        if (!addr) {
+            fatal("Failed to allocate memory for DWARF data.");
+            return ENOMEM;
+        }
 
-    ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
-    if (ret < 0) {
-        fatal("error seeking: %s", strerror(errno));
-        return EXIT_FAILURE;
-    }
+        ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
+        if (ret < 0) {
+            fatal("error seeking: %s", strerror(errno));
+            return EXIT_FAILURE;
+        }
 
-    ret = _read(obj->handle, addr, sec->mach_section.size);
-    if (ret < 0) {
-        fatal_file(ret);
-        return EXIT_FAILURE;
-    }
+        ret = _read(obj->handle, addr, sec->mach_section.size);
+        if (ret < 0) {
+            fatal_file(ret);
+            return EXIT_FAILURE;
+        }
 
-    *section_data = addr;
+        *section_data = addr;
+    }
+    else if (obj->sections_64) {
+        struct dwarf_section_64_t *sec = obj->sections_64;
+        for (i = 0; i < section_index; i++) {
+            sec = sec->next;
+        }
+
+        addr = malloc(sec->mach_section.size);
+        if (!addr) {
+            fatal("Failed to allocate memory for DWARF data.");
+            return ENOMEM;
+        }
+
+        ret = lseek(obj->handle, sec->mach_section.offset, SEEK_SET);
+        if (ret < 0) {
+            fatal("error seeking: %s", strerror(errno));
+            return EXIT_FAILURE;
+        }
+
+        ret = _read(obj->handle, addr, sec->mach_section.size);
+        if (ret < 0) {
+            fatal_file(ret);
+            return EXIT_FAILURE;
+        }
+
+        *section_data = addr;
+    }
+    else {
+        fatal("No dwarf sections defined in DWARF data.");
+        *error = DW_DLE_MDE;
+        return DW_DLV_ERROR;
+    }
 
     return DW_DLV_OK;
 }
@@ -1086,25 +1180,25 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
     addr -= slide;
 
     if (!arange_buf) {
-        // debug("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%x, &arange_buf: 0x%x, &count: 0x%x, &err: 0x%x", dbg, &arange_buf, &count, &err);
+        verbose("arange_buf is undefined, invoking dwarf_get_aranges with params: dbg: 0x%x, &arange_buf: 0x%x, &count: 0x%x, &err: 0x%x", dbg, &arange_buf, &count, &err);
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
     else {
-        // debug("arange_buf is already defined with address 0x%llx, NULLing it out now.", arange_buf);
+        verbose("arange_buf is already defined with address 0x%llx, NULLing it out now.", arange_buf);
         arange_buf = NULL;
         ret = dwarf_get_aranges(dbg, &arange_buf, &count, &err);
         DWARF_ASSERT(ret, err);
     }
 
-    // debug("invoking dwarf_get_arange with params: &arange_buf: 0x%x, &count: 0x%x, addr: 0x%x, &arange: 0xlx, &err: 0x%x", &arange_buf, &count, addr, &arange, &err);
+    verbose("invoking dwarf_get_arange with params: &arange_buf: 0x%x, &count: 0x%x, addr: 0x%x, &arange: 0xlx, &err: 0x%x", &arange_buf, &count, addr, &arange, &err);
     ret = dwarf_get_arange(arange_buf, count, addr, &arange, &err);
     DWARF_ASSERT(ret, err);
 
     if (ret == DW_DLV_NO_ENTRY)
         return ret;
 
-    // debug("invoking dwarf_get_arange_info_b with params: arange: 0x%x, &segment: 0x%x, &segment_entry_size: 0x%x, &start: 0x%x, &length: 0x%x, &cu_die_offset, &err: 0x%x", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
+    verbose("invoking dwarf_get_arange_info_b with params: arange: 0x%x, &segment: 0x%x, &segment_entry_size: 0x%x, &start: 0x%x, &length: 0x%x, &cu_die_offset, &err: 0x%x", arange, &segment, &segment_entry_size, &start, &length, &cu_die_offset, &err);
     ret = dwarf_get_arange_info_b(
             arange,
             &segment,
@@ -1115,14 +1209,14 @@ int print_dwarf_symbol(symbolication_options_t *options, context_t context, Dwar
             &err);
     DWARF_ASSERT(ret, err);
 
-    // debug("invoking dwarf_offdie with params: dbg: 0x%x, cu_die_offset: 0x%x, &cu_die, &err: 0x%x", dbg, cu_die_offset, &cu_die, &err);
+    verbose("invoking dwarf_offdie with params: dbg: 0x%x, cu_die_offset: 0x%x, &cu_die, &err: 0x%x", dbg, cu_die_offset, &cu_die, &err);
     ret = dwarf_offdie(dbg, cu_die_offset, &cu_die, &err);
     DWARF_ASSERT(ret, err);
 
     /* ret = dwarf_print_lines(cu_die, &err, &errcnt); */
     /* DWARF_ASSERT(ret, err); */
 
-    // debug("invoking dwarf_srclines with params: cu_die: 0x%x, &linebuf: 0x%x, &linecount, &err: 0x%x", cu_die, &linebuf, &linecount, &err);
+    verbose("invoking dwarf_srclines with params: cu_die: 0x%x, &linebuf: 0x%x, &linecount, &err: 0x%x", cu_die, &linebuf, &linecount, &err);
     ret = dwarf_srclines(cu_die, &linebuf, &linecount, &err);
     DWARF_ASSERT(ret, err);
 
@@ -1691,6 +1785,7 @@ int atosl_symbolicate(symbolication_options_t *options, Dwarf_Addr symbol_addres
     uint32_t magic;
 
     if (debug_mode) {
+        verbose = 1;
         setbuf(stdout, NULL);
         debug("atosl_symbolicate invoked with parameters:");
         debug("    options: 0x%llx", (long long unsigned int) options);
