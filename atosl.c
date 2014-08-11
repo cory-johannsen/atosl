@@ -852,23 +852,23 @@ static int dwarf_mach_object_access_get_section_info(
         Dwarf_Obj_Access_Section *ret_scn,
         int *error)
 {
-    verbose("dwarf_mach_object_access_get_section_info called - obj_in: 0x%x, section_index: %d, ret_scn: 0x%x, error: 0x%x", obj_in, section_index, ret_scn, error);
+    // verbose("dwarf_mach_object_access_get_section_info called - obj_in: 0x%x, section_index: %d, ret_scn: 0x%x, error: 0x%x", obj_in, section_index, ret_scn, error);
     int i;
     dwarf_mach_object_access_internals_t *obj =
         (dwarf_mach_object_access_internals_t *)obj_in;
-    verbose("Successfully cast obj_in to dwarf_mach_object_access_internals_t: 0x%x", obj);
+    // verbose("Successfully cast obj_in to dwarf_mach_object_access_internals_t: 0x%x", obj);
 
     if (section_index >= obj->section_count) {
-        verbose("dwarf_mach_object_access_get_section_info error: section index exceeds section count.");
+        // verbose("dwarf_mach_object_access_get_section_info error: section index exceeds section count.");
         *error = DW_DLE_MDE;
         return DW_DLV_ERROR;
     }
 
-    verbose("Searching for section %d", section_index);
+    // verbose("Searching for section %d", section_index);
     if (obj->sections) {
-        if (verbose) {
-            verbose("Using 32-bit dwarf sections.");
-        }
+        // if (verbose) {
+        //     verbose("Using 32-bit dwarf sections.");
+        // }
         struct dwarf_section_t *sec = obj->sections;
         for (i = 0; i < section_index; i++) {
             //verbose("Evaluating section 0x%x at index %d.  section name: %s", sec, i, sec->mach_section.sectname);
@@ -886,7 +886,7 @@ static int dwarf_mach_object_access_get_section_info(
         //    *error = DW_DLE_MDE;
         //    return DW_DLV_ERROR;
         //}
-        verbose("Located dwarf section 0x%x at index %d", sec, section_index);
+        // verbose("Located dwarf section 0x%x at index %d", sec, section_index);
 
         sec->mach_section.sectname[1] = '.';
         ret_scn->size = sec->mach_section.size;
@@ -899,9 +899,9 @@ static int dwarf_mach_object_access_get_section_info(
         ret_scn->entrysize = 0;
     }
     else if(obj->sections_64) {
-        if (verbose) {
-            verbose("Using 64-bit dwarf sections.");
-        }
+        // if (verbose) {
+        //     verbose("Using 64-bit dwarf sections.");
+        // }
         struct dwarf_section_64_t *sec = obj->sections_64;
         for (i = 0; i < section_index; i++) {
             //verbose("Evaluating section 0x%x at index %d.  section name: %s", sec, i, sec->mach_section.sectname);
@@ -919,7 +919,7 @@ static int dwarf_mach_object_access_get_section_info(
         //    *error = DW_DLE_MDE;
         //    return DW_DLV_ERROR;
         //}
-        verbose("Located dwarf section 0x%x at index %d. section name: %s", sec, section_index, sec->mach_section.sectname);;
+        // verbose("Located dwarf section 0x%x at index %d. section name: %s", sec, section_index, sec->mach_section.sectname);;
 
         sec->mach_section.sectname[1] = '.';
         ret_scn->size = sec->mach_section.size;
@@ -937,7 +937,7 @@ static int dwarf_mach_object_access_get_section_info(
         return DW_DLV_ERROR;
     }
 
-    verbose("dwarf_mach_object_access_get_section_info exiting normally.");
+    // verbose("dwarf_mach_object_access_get_section_info exiting normally.");
     return DW_DLV_OK;
 }
 
